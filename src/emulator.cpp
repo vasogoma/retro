@@ -31,9 +31,29 @@ static map<string, const char*> s_envVariables = {
 	{ "genesis_plus_gx_bram", "per game" },
 	{ "genesis_plus_gx_render", "single field" },
 	{ "genesis_plus_gx_blargg_ntsc_filter", "disabled" },
-	{ "mupen64plus-rdp-plugin", "angrylion" },
-	{ "mupen64plus-rsp-plugin", "hle" },
+	// { "mupen64plus-rdp-plugin", "angrylion" },
+	// { "mupen64plus-rsp-plugin", "hle" },
 };
+
+static const char* s_vshader_src =
+	"#version 150\n"
+	"in vec2 i_pos;\n"
+	"in vec2 i_coord;\n"
+	"out vec2 o_coord;\n"
+	"uniform mat4 u_mvp;\n"
+	"void main() {\n"
+	"o_coord = i_coord;\n"
+	"gl_Position = vec4(i_pos, 0.0, 1.0) * u_mvp;\n"
+	"}";
+
+static const char* s_fshader_src =
+	"#version 150\n"
+	"in vec2 o_coord;\n"
+	"uniform sampler2D u_tex;\n"
+	"out vec4 color;\n"
+	"void main() {\n"
+	"color = texture2D(u_tex, o_coord);\n"
+	"}";
 
 static void (*retro_init)(void);
 static void (*retro_deinit)(void);
@@ -135,8 +155,7 @@ bool Emulator::loadRom(const string& romPath) {
 	}
 	retro_get_system_av_info(&m_avInfo);
 	fixScreenSize(romPath);
-
-	// It's possible this is where the opengl window/context should be creation.
+	setupHardwareRender();
 
 	m_romLoaded = true;
 	m_romPath = romPath;
@@ -146,6 +165,7 @@ bool Emulator::loadRom(const string& romPath) {
 void Emulator::run() {
 	assert(s_loadedEmulator == this);
 	m_audioData.clear();
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	retro_run();
 }
 
@@ -319,10 +339,12 @@ void Emulator::fixScreenSize(const string& romName) {
 	} else if (!strcmp(systemInfo.library_name, "Mednafen PCE Fast")) {
 		m_avInfo.geometry.base_width = 256;
 		m_avInfo.geometry.base_height = 242;
-	}
-        else if (!strcmp(systemInfo.library_name, "Mupen64Plus-Next OpenGL")) {
+	} else if (!strcmp(systemInfo.library_name, "Mupen64Plus-Next OpenGL")) {
 		// Default results in bottom half of frame being empty.
-		m_avInfo.geometry.base_height = 236;
+		// m_avInfo.geometry.base_height = 236;
+		m_avInfo.geometry.base_height = 480;
+		// m_avInfo.geometry.base_height = 800; // 236
+		// m_avInfo.geometry.base_height = 800;
 	}
 }
 
@@ -355,20 +377,155 @@ static void fallback_log(enum retro_log_level level, const char* fmt, ...) {
 	va_end(va);
 }
 
-bool Emulator::setupHardwareRender(retro_hw_render_callback* data) {
-	assert(data->context_type == RETRO_HW_CONTEXT_OPENGL);
+GLuint Emulator::compileShader(unsigned type, unsigned count, const char** strings) {
+	GLuint shader = glCreateShader(type);
+	glShaderSource(shader, count, strings, NULL);
+	glCompileShader(shader);
 
+	GLint status;
+	glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
+
+	if (status == GL_FALSE) {
+		char buffer[4096];
+		glGetShaderInfoLog(shader, sizeof(buffer), NULL, buffer);
+		ZLOG("Failed to compile %s shader: %s", type == GL_VERTEX_SHADER ? "vertex" : "fragment", buffer);
+		exit(EXIT_FAILURE);
+	}
+
+	return shader;
+}
+
+namespace {
+
+void ortho2d(float m[4][4], float left, float right, float bottom, float top) {
+	// clang-format off
+        m[0][0] = 1; m[0][1] = 0; m[0][2] = 0; m[0][3] = 0;
+        m[1][0] = 0; m[1][1] = 1; m[1][2] = 0; m[1][3] = 0;
+        m[2][0] = 0; m[2][1] = 0; m[2][2] = 1; m[2][3] = 0;
+        m[3][0] = 0; m[3][1] = 0; m[3][2] = 0; m[3][3] = 1;
+
+        m[0][0] = 2.0f / (right - left);
+        m[1][1] = 2.0f / (top - bottom);
+        m[2][2] = -1.0f;
+        m[3][0] = -(right + left) / (right - left);
+        m[3][1] = -(top + bottom) / (top - bottom);
+	// clang-format on
+}
+
+static void resize_to_aspect(double ratio, int sw, int sh, int* dw, int* dh) {
+	*dw = sw;
+	*dh = sh;
+
+	if (ratio <= 0)
+		ratio = (double) sw / sh;
+
+	if ((float) sw / sh < 1)
+		*dw = *dh * ratio;
+	else
+		*dh = *dw / ratio;
+}
+
+} //  namespace
+
+void Emulator::refreshVertexData() {
+	const auto tex_w = m_avInfo.geometry.max_width;
+	const auto tex_h = m_avInfo.geometry.max_height;
+	const auto clip_w = m_avInfo.geometry.base_width;
+	const auto clip_h = m_avInfo.geometry.base_height;
+	assert(tex_w);
+	assert(tex_h);
+	assert(clip_w);
+	assert(clip_h);
+
+	float bottom = (float) clip_h / tex_h;
+	float right = (float) clip_w / tex_w;
+
+	float vertex_data[] = {
+		// pos, coord
+		-1.0f, -1.0f, 0.0f, bottom, // left-bottom
+		-1.0f, 1.0f, 0.0f, 0.0f,    // left-top
+		1.0f, -1.0f, right, bottom, // right-bottom
+		1.0f, 1.0f, right, 0.0f,    // right-top
+	};
+
+	glBindVertexArray(m_vao);
+
+	glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_data), vertex_data, GL_STREAM_DRAW);
+
+	glEnableVertexAttribArray(m_i_pos);
+	glEnableVertexAttribArray(m_i_coord);
+	glVertexAttribPointer(m_i_pos, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, 0);
+	glVertexAttribPointer(m_i_coord, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 4, (void*) (2 * sizeof(float)));
+
+	glBindVertexArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+void Emulator::initShaders() {
+	GLuint vshader = Emulator::compileShader(GL_VERTEX_SHADER, 1, &s_vshader_src);
+	GLuint fshader = Emulator::compileShader(GL_FRAGMENT_SHADER, 1, &s_fshader_src);
+	GLuint program = glCreateProgram();
+	assert(program);
+
+	glAttachShader(program, vshader);
+	glAttachShader(program, fshader);
+	glLinkProgram(program);
+
+	glDeleteShader(vshader);
+	glDeleteShader(fshader);
+
+	glValidateProgram(program);
+
+	GLint status;
+	glGetProgramiv(program, GL_LINK_STATUS, &status);
+
+	if (status == GL_FALSE) {
+		char buffer[4096];
+		glGetProgramInfoLog(program, sizeof(buffer), NULL, buffer);
+		ZLOG("Failed to link shader program: %s", buffer);
+		exit(EXIT_FAILURE);
+	}
+
+	m_program = program;
+	m_i_pos = glGetAttribLocation(program, "i_pos");
+	m_i_coord = glGetAttribLocation(program, "i_coord");
+	m_u_tex = glGetUniformLocation(program, "u_tex");
+	m_u_mvp = glGetUniformLocation(program, "u_mvp");
+
+	glGenVertexArrays(1, &m_vao);
+	glGenBuffers(1, &m_vbo);
+
+	glUseProgram(m_program);
+
+	glUniform1i(m_u_tex, 0);
+
+	float m[4][4];
+	if (m_hw.bottom_left_origin) {
+		ortho2d(m, -1, 1, 1, -1);
+	} else {
+		ortho2d(m, -1, 1, -1, 1);
+	}
+
+	glUniformMatrix4fv(m_u_mvp, 1, GL_FALSE, (float*) m);
+	glUseProgram(0);
+}
+
+void Emulator::createWindow() {
+	assert(m_hw.context_type == RETRO_HW_CONTEXT_OPENGL_CORE);
 	glfwInit();
 
+	// Create window and context.
+
 	// Set configuration variables.
-	ZLOG("GLFW VERSION MAJOR: %d", data->version_major);
-	ZLOG("GLFW VERSION MINOR: %d", data->version_minor);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, data->version_major);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, data->version_minor);
+	ZLOG("GLFW VERSION MAJOR: %d", m_hw.version_major);
+	ZLOG("GLFW VERSION MINOR: %d", m_hw.version_minor);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, m_hw.version_major);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, m_hw.version_minor);
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 	glfwWindowHint(GLFW_RESIZABLE, GL_FALSE);
-	// And a more variables from glsm.c:
+	// And more variables from glsm.c:
 	// hw_render.context_reset      = params->context_reset;
 	// hw_render.context_destroy    = params->context_destroy;
 	// hw_render.stencil            = params->stencil;
@@ -377,70 +534,148 @@ bool Emulator::setupHardwareRender(retro_hw_render_callback* data) {
 	// hw_render.cache_context      = true;
 	// Set window to be invisible:
 	// set GLFW_VISIBLE appropriately.
+	glfwWindowHint(GLFW_VISIBLE, GL_FALSE);
 
 	// For some reason the image width / height is zero at this point.
 	int width = getImageWidth();
-	if (width == 0) {
-		constexpr int kDefaultWidth = 500;
-		width = kDefaultWidth;
-	}
 	int height = getImageHeight();
-	if (height == 0) {
-		constexpr int kDefaultHeight = 500;
-		height = kDefaultHeight;
-	}
 	m_glfw_window = glfwCreateWindow(width, height, "retro", nullptr, nullptr);
 
 	// Check for Valid Context
 	if (m_glfw_window == nullptr) {
 		int code = glfwGetError(nullptr);
 		ZLOG("Failed to Create OpenGL Context. Error code: %#010x\n", code);
-		return false;
+		exit(EXIT_FAILURE);
 	}
 
 	// Create Context and Load OpenGL Functions
 	glfwMakeContextCurrent(m_glfw_window);
-	gladLoadGL();
-	glGetStringi(GL_EXTENSIONS, 0);
-	const char* name = (const char*) glGetStringi(GL_EXTENSIONS, 0);
-	printf("name:\n%s\n", name);
-	// It's possible this call needs to be made before `glfwMakeContextCurrent`.
-	data->context_reset();
 
+	// I think this is equivalent to the below, but whatever.
+	// gladLoadGL();
+	if (!gladLoadGLLoader((GLADloadproc) glfwGetProcAddress)) {
+		ZLOG("Failed to initialize opengl context.", "");
+	}
+
+	initShaders();
+	glfwSwapInterval(1);
+	glfwSwapBuffers(m_glfw_window);
+}
+
+void Emulator::initFramebuffer() {
+	int width = getImageWidth();
+	int height = getImageHeight();
+
+	glGenFramebuffers(1, &m_fbo_id);
+	glBindFramebuffer(GL_FRAMEBUFFER, m_fbo_id);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, m_tex_id, 0);
+
+	if (m_hw.depth && m_hw.stencil) {
+		glGenRenderbuffers(1, &m_rbo_id);
+		glBindRenderbuffer(GL_RENDERBUFFER, m_rbo_id);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, m_rbo_id);
+	} else if (m_hw.depth) {
+		glGenRenderbuffers(1, &m_rbo_id);
+		glBindRenderbuffer(GL_RENDERBUFFER, m_rbo_id);
+		glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, width, height);
+		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, m_rbo_id);
+	}
+
+	if (m_hw.depth || m_hw.stencil) {
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	}
+
+	glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+	glClearColor(0, 0, 0, 1);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+bool Emulator::setupHardwareRender() {
+	auto* geom = &m_avInfo.geometry;
+	// int nwidth, nheight;
+	// resize_to_aspect(geom->aspect_ratio, geom->base_width * 1, geom->base_height * 1, &nwidth, &nheight);
+
+	int nwidth = getImageWidth();
+	int nheight = getImageHeight();
+
+	if (!m_glfw_window) {
+		createWindow();
+	}
+
+	// wish this was in a function
+	if (m_tex_id) {
+		glDeleteTextures(1, &m_tex_id);
+	}
+	m_tex_id = 0;
+	if (!m_pixfmt) {
+		m_pixfmt = GL_UNSIGNED_SHORT_5_5_5_1;
+	}
+
+	// need to add this
+	glfwSetWindowSize(m_glfw_window, nwidth, nheight);
+
+	glGenTextures(1, &m_tex_id);
+	if (!m_tex_id) {
+		ZLOG("Failed to create the video texture", "");
+		exit(EXIT_FAILURE);
+	}
+
+	m_imgPitch = geom->max_width * m_bpp;
+
+	glBindTexture(GL_TEXTURE_2D, m_tex_id);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, geom->max_width, geom->max_height, 0,
+		m_pixtype, m_pixfmt, NULL);
+
+	glBindTexture(GL_TEXTURE_2D, 0);
+
+	// end wish this was in a function
+	initFramebuffer();
+	refreshVertexData();
+	m_hw.context_reset();
 	return true;
+}
 
-	// Where does the rest of this go?
-	// // Rendering Loop
-	// while (glfwWindowShouldClose(mWindow) == false) {
-	//     if (glfwGetKey(mWindow, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-	//         glfwSetWindowShouldClose(mWindow, true);
-
-	//     // Background Fill Color
-	//     glClearColor(0.25f, 0.25f, 0.25f, 1.0f);
-	//     glClear(GL_COLOR_BUFFER_BIT);
-
-	//     // Flip Buffers and Draw
-	//     glfwSwapBuffers(mWindow);
-	//     glfwPollEvents();
-	// }   glfwTerminate();
+uintptr_t Emulator::cbGetCurrentFramebuffer() {
+	assert(s_loadedEmulator);
+	return s_loadedEmulator->m_fbo_id;
 }
 
 bool Emulator::cbEnvironment(unsigned cmd, void* data) {
 	assert(s_loadedEmulator);
 	switch (cmd) {
-	case RETRO_ENVIRONMENT_SET_HW_RENDER:
-		return s_loadedEmulator->setupHardwareRender(
-			reinterpret_cast<struct retro_hw_render_callback*>(data));
+	case RETRO_ENVIRONMENT_SET_HW_RENDER: {
+		struct retro_hw_render_callback* hw = reinterpret_cast<struct retro_hw_render_callback*>(data);
+		hw->get_current_framebuffer = s_loadedEmulator->cbGetCurrentFramebuffer;
+		hw->get_proc_address = (retro_hw_get_proc_address_t) glfwGetProcAddress;
+		s_loadedEmulator->m_hw = *hw;
+		return true;
+	}
 	case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT:
 		switch (*reinterpret_cast<retro_pixel_format*>(data)) {
 		case RETRO_PIXEL_FORMAT_XRGB8888:
 			s_loadedEmulator->m_imgDepth = 32;
+			s_loadedEmulator->m_pixfmt = GL_UNSIGNED_INT_8_8_8_8_REV;
+			s_loadedEmulator->m_pixtype = GL_BGRA;
+			s_loadedEmulator->m_bpp = sizeof(uint32_t);
 			break;
 		case RETRO_PIXEL_FORMAT_RGB565:
 			s_loadedEmulator->m_imgDepth = 16;
+			s_loadedEmulator->m_pixfmt = GL_UNSIGNED_SHORT_5_6_5;
+			s_loadedEmulator->m_pixtype = GL_RGB;
+			s_loadedEmulator->m_bpp = sizeof(uint16_t);
 			break;
 		case RETRO_PIXEL_FORMAT_0RGB1555:
 			s_loadedEmulator->m_imgDepth = 15;
+			s_loadedEmulator->m_pixfmt = GL_UNSIGNED_SHORT_5_5_5_1;
+			s_loadedEmulator->m_pixtype = GL_BGRA;
+			s_loadedEmulator->m_bpp = sizeof(uint16_t);
 			break;
 		default:
 			s_loadedEmulator->m_imgDepth = 0;
@@ -476,20 +711,138 @@ bool Emulator::cbEnvironment(unsigned cmd, void* data) {
 		}
 		s_loadedEmulator->reconfigureAddressSpace();
 		return true;
+	case RETRO_ENVIRONMENT_SET_VARIABLES: {
+		const struct retro_variable* vars = (const struct retro_variable*) data;
+		size_t num_vars = 0;
+
+		for (const struct retro_variable* v = vars; v->key; ++v) {
+			num_vars++;
+		}
+		struct retro_variable* g_vars = NULL;
+		g_vars = (struct retro_variable*) calloc(num_vars + 1, sizeof(*g_vars));
+		for (unsigned i = 0; i < num_vars; ++i) {
+			const struct retro_variable* invar = &vars[i];
+			struct retro_variable* outvar = &g_vars[i];
+
+			const char* semicolon = strchr(invar->value, ';');
+			const char* first_pipe = strchr(invar->value, '|');
+
+			assert(semicolon && *semicolon);
+			semicolon++;
+			while (isspace(*semicolon))
+				semicolon++;
+
+			if (first_pipe) {
+				outvar->value = (char*) malloc((first_pipe - semicolon) + 1);
+				memcpy((char*) outvar->value, semicolon, first_pipe - semicolon);
+				((char*) outvar->value)[first_pipe - semicolon] = '\0';
+			} else {
+				outvar->value = strdup(semicolon);
+			}
+
+			outvar->key = strdup(invar->key);
+			assert(outvar->key && outvar->value);
+		}
+
+		for (const struct retro_variable* v = g_vars; v->key; ++v) {
+			s_envVariables.insert({ string(v->key), v->value });
+		}
+		// for (const auto& [key, value] : s_envVariables) {
+		// 	ZLOG("key: %s value: %s", key.c_str(), value);
+		// }
+		// Freeing this breaks stuff so I guess I just won't free them!
+		// for (const struct retro_variable* v = g_vars; v->key; ++v) {
+		// 	free((char*) v->key);
+		// 	free((char*) v->value);
+		// }
+		// free(g_vars);
+
+		return true;
+	}
+	case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: {
+		bool* bval = (bool*) data;
+		*bval = false;
+		return true;
+	}
+	case RETRO_ENVIRONMENT_SET_GEOMETRY: {
+		return false;
+	}
 	default:
 		return false;
 	}
 	return false;
 }
 
-void Emulator::cbVideoRefresh(const void* data, unsigned, unsigned, size_t pitch) {
+void Emulator::cbVideoRefresh(const void* data, unsigned width, unsigned height, size_t pitch) {
 	assert(s_loadedEmulator);
-	if (data) {
-		s_loadedEmulator->m_imgData = data;
-	}
+	// if (data) {
+	// 	// THIS MIGHT BREAK NOW.
+	// 	// Ok it definitely breaks. Need to set it to real image data.
+	// 	// s_loadedEmulator->m_imgData = data;
+	// }
 	if (pitch) {
 		s_loadedEmulator->m_imgPitch = pitch;
 	}
+
+	if (width != s_loadedEmulator->getImageWidth() || height != s_loadedEmulator->getImageHeight()) {
+		s_loadedEmulator->refreshVertexData();
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, s_loadedEmulator->m_tex_id);
+
+	if (data && data != RETRO_HW_FRAME_BUFFER_VALID) {
+		glPixelStorei(GL_UNPACK_ROW_LENGTH, s_loadedEmulator->m_imgPitch / s_loadedEmulator->m_bpp);
+		glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height,
+			s_loadedEmulator->m_pixtype, s_loadedEmulator->m_pixfmt, data);
+	}
+
+	int w = 0, h = 0;
+	glfwGetWindowSize(s_loadedEmulator->m_glfw_window, &w, &h);
+	glViewport(0, 0, w, h);
+	glClear(GL_COLOR_BUFFER_BIT);
+	glUseProgram(s_loadedEmulator->m_program);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, s_loadedEmulator->m_tex_id);
+	glBindVertexArray(s_loadedEmulator->m_vao);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+	// glfwSwapBuffers(s_loadedEmulator->m_glfw_window);
+	glBindVertexArray(0);
+	glUseProgram(0);
+
+	// check OpenGL error
+	// ZLOG("Before", "");
+	// GLenum err;
+	// while ((err = glGetError()) != GL_NO_ERROR) {
+	// 	cerr << "OpenGL error: " << err << endl;
+	// }
+
+	if (s_loadedEmulator->m_pixels.size() < w * h * 4) {
+		s_loadedEmulator->m_pixels.resize(w * h * 4);
+	}
+
+	// int sum = 0;
+	// for (size_t i = 0; i < w * h * 4; ++i) {
+	// 	sum += static_cast<int>(s_loadedEmulator->m_pixels[i]);
+	// }
+	// ZLOG("first sum: %d", sum);
+
+	glReadPixels(0, 0, w, h, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, s_loadedEmulator->m_pixels.data());
+	s_loadedEmulator->m_imgData = s_loadedEmulator->m_pixels.data();
+
+	// ZLOG("After", "");
+	// while ((err = glGetError()) != GL_NO_ERROR) {
+	// 	cerr << "OpenGL error: " << err << endl;
+	// }
+
+	// sum = 0;
+	// for (size_t i = 0; i < w * h * 4; ++i) {
+	// 	sum += static_cast<int>(s_loadedEmulator->m_pixels[i]);
+	// }
+	// ZLOG("second sum: %d", sum);
+
+	glfwSwapBuffers(s_loadedEmulator->m_glfw_window);
 }
 
 void Emulator::cbAudioSample(int16_t left, int16_t right) {
