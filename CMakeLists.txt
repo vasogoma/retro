@@ -3,22 +3,6 @@ if(POLICY CMP0048)
     cmake_policy(SET CMP0048 NEW)
 endif()
 
-# START added
-option(GLFW_BUILD_DOCS OFF)
-option(GLFW_BUILD_EXAMPLES OFF)
-option(GLFW_BUILD_TESTS OFF)
-add_subdirectory(third-party/glfw)
-
-set(GLAD_LIBRARIES dl)
-
-include_directories(third-party/glad/include/
-                    third-party/glfw/include/)
-
-file(GLOB VENDORS_SOURCES third-party/glad/src/glad.c)
-
-add_definitions(-DGLFW_INCLUDE_NONE
-                -DPROJECT_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\")
-
 find_package(Git QUIET)
 
 find_package(PythonInterp REQUIRED)
@@ -43,6 +27,7 @@ option(BUILD_TESTS "Should tests be built" ON)
 option(BUILD_UI "Should integration UI be built" OFF)
 option(BUILD_LUAJIT "Should static LuaJIT be used instead of system Lua" ON)
 option(BUILD_MANYLINUX "Should use static libraries compatible with manylinux1" OFF)
+option(BUILD_ANGRYLION "Should angrylion be used instead of opengl for rendering" OFF)
 
 set(BUILD_PYTHON ON CACHE BOOL "Build Python module")
 mark_as_advanced(BUILD_PYTHON)
@@ -90,6 +75,28 @@ else()
         COMMAND $(MAKE) clean
         WORKING_DIRECTORY "${LUA_INCLUDE_DIRS}")
 endif()
+
+# This section adding the OpenGL requirements, and enacting relevant options.
+option(GLFW_BUILD_DOCS OFF)
+option(GLFW_BUILD_EXAMPLES OFF)
+option(GLFW_BUILD_TESTS OFF)
+add_subdirectory(third-party/glfw)
+
+set(GLAD_LIBRARIES dl)
+
+include_directories(third-party/glad/include/
+                    third-party/glfw/include/)
+
+file(GLOB VENDORS_SOURCES third-party/glad/src/glad.c)
+
+add_definitions(-DGLFW_INCLUDE_NONE
+  -DPROJECT_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\")
+
+if(BUILD_ANGRYLION)
+  add_definitions(-DHAVE_THR_AL=1 -DHAVE_PARALLEL_RSP=1)
+endif()
+
+# End of OpenGL requirements.
 
 if(NOT WIN32)
     set(PYEXT_SUFFIX ".so" CACHE STRING "Suffix for Python extension modules")
