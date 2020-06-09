@@ -14,6 +14,7 @@ import time
 import gym
 import matplotlib.pyplot as plt
 import numpy as np
+from PIL import Image
 import retro
 import tensorflow as tf
 
@@ -179,14 +180,12 @@ def main5():
 def main6():
     retro.data.add_custom_integration("custom")
 
-    import faulthandler; faulthandler.enable()
-    
-    def wrap_deepmind_n64(env, reward_scale=1 / 100.0, frame_stack=4):
+    def wrap_deepmind_n64(env, reward_scale=1 / 100.0, frame_stack=1):
         env = MaxAndSkipEnv(env, skip=4)
-        env = WarpFrame(env, width=150, height=100)
+        env = WarpFrame(env, width=450, height=300, grayscale=False)
         env = FrameStack(env, frame_stack)
         env = ScaledFloatFrame(env)
-        env = RewardScaler(env, scale=1 / 100.0)
+        env = RewardScaler(env, scale=reward_scale)
         return env
 
     def make_env():
@@ -198,27 +197,42 @@ def main6():
         env = wrap_deepmind_n64(env)
         return env
 
-    env = make_env()
+    gpu_options = tf.GPUOptions(allow_growth=True)
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
+    # env = make_env()
+    env = SubprocVecEnv([make_env] * 1)
+    # env = DummyVecEnv([make_env] * 1)
 
     env.reset()
     num_steps = 20000
-    action = np.array([0, 0, 0])
+    # action = [np.array([0, 0, 0])]
+    # action = [env.action_space.sample() for _ in range(2)]
     for i in range(num_steps):
         sys.stdout.write(f"\r{i+1} / {num_steps}")
         # action = env.action_space.sample()
+        action = [env.action_space.sample() for _ in range(1)]
         obs, reward, done, info = env.step(action)
-        if done:
+
+        print(f"\nreward: {reward} done: {done}")
+        # input()
+        if (isinstance(done, bool) and done) or (isinstance(done, list) and all(done)):
             env.reset()
         # env.render()
 
         if i % 50 == 0:
-            fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 12))
-            for j in range(4):
-                row = j // 2
-                col = j % 2
-                print(row)
-                print(col)
-                axs[row, col].imshow(obs[:, :, j])
+            image = Image.fromarray((obs[0] * 255).astype(np.uint8))
+            image.save("/home/wulfebw/Desktop/color.png")
+
+            plt.imshow(obs[0, :, :, 0])
+
+            # fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 12))
+            # for j in range(1):
+            #     row = j // 2
+            #     col = j % 2
+            #     print(row)
+            #     print(col)
+            #     axs[row, col].imshow(obs[:, :])
             plt.show()
             plt.close()
     end = time.time()
@@ -247,13 +261,15 @@ def main7():
         env = wrap_deepmind_n64(env)
         return env
 
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.75)
+    gpu_options = tf.GPUOptions(allow_growth=True)
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 
     nenvs = 2
     # env = DummyVecEnv([make_env] * nenvs)
     env = SubprocVecEnv([make_env] * nenvs)
-    policy = build_policy(env, "impala_cnn_lstm")
+    network_name = "impala_cnn_lstm"
+    policy = build_policy(env, network_name)
+    recurrent = "lstm" in network_name
     ob_space = env.observation_space
     ac_space = env.action_space
     nsteps = 10
@@ -261,16 +277,16 @@ def main7():
     nbatch = nenvs * nsteps
     nbatch_train = nbatch // nminibatches
     model = Model(policy=policy,
-                     ob_space=ob_space,
-                     ac_space=ac_space,
-                     nbatch_act=nenvs,
-                     nbatch_train=nbatch_train,
-                     nsteps=nsteps,
-                     ent_coef=0.01,
-                     vf_coef=0.5,
-                     max_grad_norm=0.5,
-                     comm=None,
-                     mpi_rank_weight=1)
+                  ob_space=ob_space,
+                  ac_space=ac_space,
+                  nbatch_act=nenvs,
+                  nbatch_train=nbatch_train,
+                  nsteps=nsteps,
+                  ent_coef=0.01,
+                  vf_coef=0.5,
+                  max_grad_norm=0.5,
+                  comm=None,
+                  mpi_rank_weight=1)
     runner = Runner(env=env, model=model, nsteps=10, gamma=.99, lam=.95)
 
     env.reset()
@@ -284,20 +300,20 @@ def main7():
         # env.render()
 
         if i % 50 == 0:
-            fig, axs = plt.subplots(nrows=4, ncols=2, figsize=(20, 12))
+            if recurrent:
+                fig, axs = plt.subplots(nrows=1, ncols=2, figsize=(20, 12))
+            else:
+                fig, axs = plt.subplots(nrows=4, ncols=2, figsize=(20, 12))
             for env_index in range(nenvs):
-                for j in range(1):
-                    row = env_index * 2 + j // 2
-                    col = j % 2
-                    print(row)
-                    print(col)
-                    axs[row, col].imshow(obs[env_index, :, :, :])
-                # for j in range(4):
-                #     row = env_index * 2 + j // 2
-                #     col = j % 2
-                #     print(row)
-                #     print(col)
-                #     axs[row, col].imshow(obs[env_index, :, :, j])
+                if recurrent:
+                    axs[env_index].imshow(obs[env_index, :, :, :])
+                else:
+                    for j in range(4):
+                        row = env_index * 2 + j // 2
+                        col = j % 2
+                        print(row)
+                        print(col)
+                        axs[row, col].imshow(obs[env_index, :, :, j])
             plt.show()
             plt.close()
     end = time.time()
