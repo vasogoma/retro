@@ -19,22 +19,6 @@ file(GLOB VENDORS_SOURCES third-party/glad/src/glad.c)
 add_definitions(-DGLFW_INCLUDE_NONE
                 -DPROJECT_SOURCE_DIR=\"${PROJECT_SOURCE_DIR}\")
 
-# Questions
-# 1. where to put include dirs?
-# compare with other include dirs vars
-# just include them here
-
-# 2. where to add VENDORS_SOURCES
-# originally it was included in the executable
-# maybe check for other source files
-# I think it depends on what needs it
-# what needs it?
-# the emulate.cpp file basically
-# so where is that compiled here?
-# under add_librar(retro-base ...) I believe, so adding it there
-
-# END added
-
 find_package(Git QUIET)
 
 find_package(PythonInterp REQUIRED)
@@ -43,7 +27,7 @@ file(READ "${CMAKE_SOURCE_DIR}/VERSION" PROJECT_VERSION)
 string(REGEX REPLACE "\n$" "" PROJECT_VERSION "${PROJECT_VERSION}")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "$CMAKE_SOURCE_DIR}/VERSION")
 
-project("Gym Retro" VERSION ${PROJECT_VERSION})
+project("Gym N64" VERSION ${PROJECT_VERSION})
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
@@ -180,13 +164,6 @@ function(add_core PLATFORM CORE_NAME)
         WORKING_DIRECTORY "cores/${PLATFORM}/${SUBDIR}")
 endfunction()
 
-add_core(snes snes9x)
-add_core(genesis genesis_plus_gx)
-add_core(nes fceumm)
-add_core(atari2600 stella)
-add_core(gb gambatte)
-add_core(gba mgba)
-add_core(pce mednafen_pce_fast)
 add_core(n64 mupen64plus_next)
 
 set(CLEAN_CORES)
