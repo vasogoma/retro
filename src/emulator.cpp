@@ -31,9 +31,17 @@ static map<string, const char*> s_envVariables = {
 	{ "genesis_plus_gx_bram", "per game" },
 	{ "genesis_plus_gx_render", "single field" },
 	{ "genesis_plus_gx_blargg_ntsc_filter", "disabled" },
-	// { "mupen64plus-rdp-plugin", "angrylion" },
-	// { "mupen64plus-rsp-plugin", "hle" },
+#ifdef HAVE_THR_AL
+	{ "mupen64plus-rdp-plugin", "angrylion" },
+	{ "mupen64plus-rsp-plugin", "hle" },
+#endif
 };
+
+#ifdef HAVE_THR_AL
+static bool s_use_opengl = false;
+#else
+static bool s_use_opengl = true;
+#endif
 
 static const char* s_vshader_src =
 	"#version 150\n"
@@ -155,7 +163,9 @@ bool Emulator::loadRom(const string& romPath) {
 	}
 	retro_get_system_av_info(&m_avInfo);
 	fixScreenSize(romPath);
-	setupHardwareRender();
+	if (s_use_opengl) {
+		setupHardwareRender();
+	}
 
 	m_romLoaded = true;
 	m_romPath = romPath;
@@ -165,7 +175,10 @@ bool Emulator::loadRom(const string& romPath) {
 void Emulator::run() {
 	assert(s_loadedEmulator == this);
 	m_audioData.clear();
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if (s_use_opengl) {
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
 	retro_run();
 }
 
@@ -651,6 +664,9 @@ bool Emulator::cbEnvironment(unsigned cmd, void* data) {
 	assert(s_loadedEmulator);
 	switch (cmd) {
 	case RETRO_ENVIRONMENT_SET_HW_RENDER: {
+		if (!s_use_opengl) {
+			return false;
+		}
 		struct retro_hw_render_callback* hw = reinterpret_cast<struct retro_hw_render_callback*>(data);
 		hw->get_current_framebuffer = s_loadedEmulator->cbGetCurrentFramebuffer;
 		hw->get_proc_address = (retro_hw_get_proc_address_t) glfwGetProcAddress;
@@ -745,7 +761,13 @@ bool Emulator::cbEnvironment(unsigned cmd, void* data) {
 		}
 
 		for (const struct retro_variable* v = g_vars; v->key; ++v) {
-			s_envVariables.insert({ string(v->key), v->value });
+			if (s_envVariables.count(string(v->key)) == 0) {
+				// ZLOG("key: %s value: %s", v->key, v->value);
+				s_envVariables.insert({ string(v->key), v->value });
+			} else {
+				const auto value = s_envVariables.at(string(v->key));
+				// ZLOG("ALREADY EXISTS key: %s value: %s", v->key, value);
+			}
 		}
 		// for (const auto& [key, value] : s_envVariables) {
 		// 	ZLOG("key: %s value: %s", key.c_str(), value);
@@ -775,13 +797,15 @@ bool Emulator::cbEnvironment(unsigned cmd, void* data) {
 
 void Emulator::cbVideoRefresh(const void* data, unsigned width, unsigned height, size_t pitch) {
 	assert(s_loadedEmulator);
-	// if (data) {
-	// 	// THIS MIGHT BREAK NOW.
-	// 	// Ok it definitely breaks. Need to set it to real image data.
-	// 	// s_loadedEmulator->m_imgData = data;
-	// }
 	if (pitch) {
 		s_loadedEmulator->m_imgPitch = pitch;
+	}
+
+	if (!s_use_opengl) {
+		if (data) {
+			s_loadedEmulator->m_imgData = data;
+		}
+		return;
 	}
 
 	if (width != s_loadedEmulator->getImageWidth() || height != s_loadedEmulator->getImageHeight()) {
