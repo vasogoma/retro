@@ -22,7 +22,7 @@ from baselines.common.atari_wrappers import (WarpFrame, FrameStack, ScaledFloatF
 from baselines.common.policies import build_policy
 from baselines.common.retro_wrappers import (make_retro, wrap_deepmind_retro, MovieRecord,
                                              RewardScaler)
-from baselines.common.vec_env import SubprocVecEnv, DummyVecEnv
+from baselines.common.vec_env import SubprocVecEnv, DummyVecEnv, VecEnvWrapper
 from baselines.ppo2.model import Model
 from baselines.ppo2.runner import Runner
 
@@ -190,10 +190,12 @@ def main6():
 
     def make_env():
         retro.data.add_custom_integration("custom")
+        state = "ssb64.pikachu.level9dk.dreamland.state"
         env = retro.n64_env.N64Env(game="SuperSmashBros-N64",
                                    use_restricted_actions=retro.Actions.MULTI_DISCRETE,
                                    inttype=retro.data.Integrations.CUSTOM,
-                                   obs_type=retro.Observations.IMAGE)
+                                   obs_type=retro.Observations.IMAGE,
+                                   state=state)
         env = wrap_deepmind_n64(env)
         return env
 
@@ -322,5 +324,142 @@ def main7():
     return env
 
 
+class MultiAgentDummyVecEnv(DummyVecEnv):
+    def __init__(self, num_agents, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.buf_rews = np.zeros((self.num_envs, num_agents), dtype=np.float32)
+
+
+SSB64_IMAGE_MEAN = [0.39777202, 0.56584128, 0.43192356]
+
+
+class ImageNormalizer(gym.ObservationWrapper):
+    def __init__(self, env, mean):
+        super().__init__(env)
+        self.mean = np.array(mean, dtype=np.float32)
+        low = -self.mean.max()
+        high = 1 - self.mean.min()
+        self.observation_space = gym.spaces.Box(low=low,
+                                                high=high,
+                                                shape=env.observation_space.shape,
+                                                dtype=np.float32)
+
+    def observation(self, observation):
+        return observation - self.mean
+
+
+class MultiAgentToSingleAgent(VecEnvWrapper):
+    """Converts a vector of multi-agent environments into a vector of single-agent environments."""
+    def __init__(self, venv, num_agents):
+        super().__init__(venv)
+        self.num_agents = num_agents
+        self.num_envs = self.num_envs * self.num_agents
+        self.action_space = self._get_action_space(venv.action_space, self.num_agents)
+
+    def _get_action_space(self, multi_action_space, num_agents):
+        if isinstance(multi_action_space, gym.spaces.MultiDiscrete):
+            single_agent_length = len(multi_action_space.nvec) // num_agents
+            nvec = multi_action_space.nvec[:single_agent_length]
+            return gym.spaces.MultiDiscrete(nvec)
+        else:
+            raise NotImplementedError(f"Action space not implemented: {multi_action_space}")
+
+    def reset(self):
+        obs = self.venv.reset()
+        obs = np.repeat(obs, repeats=self.num_agents, axis=0)
+        return obs
+
+    def step_async(self, actions):
+        actions = np.reshape(actions, (self.venv.num_envs, -1))
+        return self.venv.step_async(actions)
+
+    def step_wait(self):
+        obs, rews, dones, infos = self.venv.step_wait()
+        obs = np.repeat(obs, repeats=self.num_agents, axis=0)
+        rews = rews.reshape(self.num_envs)
+        dones = np.repeat(dones, repeats=self.num_agents, axis=0)
+        infos = np.repeat(infos, repeats=self.num_agents, axis=0)
+        return obs, rews, dones, infos
+
+
+def main8():
+    retro.data.add_custom_integration("custom")
+
+    def wrap_deepmind_n64(env, reward_scale=1 / 100.0, frame_stack=1, normalize_observations=True):
+        env = MaxAndSkipEnv(env, skip=4)
+        env = WarpFrame(env, width=450, height=300, grayscale=False)
+        env = FrameStack(env, frame_stack)
+        env = ScaledFloatFrame(env)
+        if normalize_observations:
+            env = ImageNormalizer(env, mean=SSB64_IMAGE_MEAN)
+        env = RewardScaler(env, scale=reward_scale)
+        return env
+
+    def make_env():
+        retro.data.add_custom_integration("custom")
+        state = "ssb64.pikachu.dk.dreamland.state"
+        env = retro.n64_env.N64Env(game="SuperSmashBros-N64",
+                                   use_restricted_actions=retro.Actions.MULTI_DISCRETE,
+                                   inttype=retro.data.Integrations.CUSTOM,
+                                   obs_type=retro.Observations.IMAGE,
+                                   state=state,
+                                   players=2)
+        env = wrap_deepmind_n64(env)
+        return env
+
+    gpu_options = tf.GPUOptions(allow_growth=True)
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
+    num_envs = 1
+    num_agents = 2
+    # env = make_env()
+    # env = SubprocVecEnv([make_env] * num_envs)
+    # env = DummyVecEnv([make_env] * num_envs)
+    env = MultiAgentDummyVecEnv(num_agents=2, env_fns=[make_env] * num_envs)
+    env = MultiAgentToSingleAgent(env, num_agents=num_agents)
+
+    env.reset()
+    num_steps = 20000
+    # action = [np.array([0, 0, 0])]
+    # action = [env.action_space.sample() for _ in range(2)]
+    for i in range(num_steps):
+        sys.stdout.write(f"\r{i+1} / {num_steps}")
+        if isinstance(env, DummyVecEnv) or isinstance(env, MultiAgentDummyVecEnv):
+            action = env.action_space.sample()
+        else:
+            action = [env.action_space.sample() for _ in range(num_envs * num_agents)]
+        obs, reward, done, info = env.step(action)
+
+        print(f"\nreward: {reward} done: {done}")
+        # input()
+        if (isinstance(done, bool) and done) or (isinstance(done, list) and all(done)):
+            env.reset()
+        # env.render()
+
+        if i % 50 == 0:
+
+            if len(obs.shape) == 4:
+                image = Image.fromarray((obs[0] * 255).astype(np.uint8))
+                image.save("/home/wulfebw/Desktop/color.png")
+
+                plt.imshow(obs[0, :, :])
+            elif len(obs.shape) == 3:
+                plt.imshow(obs)
+
+            # fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 12))
+            # for j in range(1):
+            #     row = j // 2
+            #     col = j % 2
+            #     print(row)
+            #     print(col)
+            #     axs[row, col].imshow(obs[:, :])
+            plt.show()
+            plt.close()
+    end = time.time()
+    print(end - start)
+
+    return env
+
+
 if __name__ == "__main__":
-    main6()
+    main8()
