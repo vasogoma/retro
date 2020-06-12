@@ -26,6 +26,8 @@ from baselines.common.vec_env import SubprocVecEnv, DummyVecEnv, VecEnvWrapper
 from baselines.ppo2.model import Model
 from baselines.ppo2.runner import Runner
 
+from retro.examples.vec_frame_diff import VecFrameDiff
+
 
 def main1():
     retro.data.add_custom_integration("custom")
@@ -345,7 +347,7 @@ class ImageNormalizer(gym.ObservationWrapper):
                                                 dtype=np.float32)
 
     def observation(self, observation):
-        return observation - self.mean
+        return (observation - self.mean) * 2
 
 
 class MultiAgentToSingleAgent(VecEnvWrapper):
@@ -461,5 +463,85 @@ def main8():
     return env
 
 
+def main9():
+    retro.data.add_custom_integration("custom")
+
+    def wrap_deepmind_n64(env, reward_scale=1 / 100.0, frame_stack=1, normalize_observations=True):
+        env = MaxAndSkipEnv(env, skip=4)
+        env = WarpFrame(env, width=450, height=300, grayscale=False)
+        env = ScaledFloatFrame(env)
+        if normalize_observations:
+            env = ImageNormalizer(env, mean=SSB64_IMAGE_MEAN)
+        env = RewardScaler(env, scale=reward_scale)
+        return env
+
+    def make_env():
+        retro.data.add_custom_integration("custom")
+        state = "ssb64.pikachu.dk.dreamland.state"
+        env = retro.n64_env.N64Env(game="SuperSmashBros-N64",
+                                   use_restricted_actions=retro.Actions.MULTI_DISCRETE,
+                                   inttype=retro.data.Integrations.CUSTOM,
+                                   obs_type=retro.Observations.IMAGE,
+                                   state=state,
+                                   players=2)
+        env = wrap_deepmind_n64(env)
+        return env
+
+    gpu_options = tf.GPUOptions(allow_growth=True)
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
+    num_envs = 1
+    num_agents = 2
+    # env = make_env()
+    # env = SubprocVecEnv([make_env] * num_envs)
+    # env = DummyVecEnv([make_env] * num_envs)
+    env = MultiAgentDummyVecEnv(num_agents=2, env_fns=[make_env] * num_envs)
+    env = MultiAgentToSingleAgent(env, num_agents=num_agents)
+    env = VecFrameDiff(env)
+
+    env.reset()
+    num_steps = 20000
+    # action = [np.array([0, 0, 0])]
+    # action = [env.action_space.sample() for _ in range(2)]
+    for i in range(num_steps):
+        sys.stdout.write(f"\r{i+1} / {num_steps}")
+        if isinstance(env, DummyVecEnv) or isinstance(env, MultiAgentDummyVecEnv):
+            action = env.action_space.sample()
+        else:
+            action = [env.action_space.sample() for _ in range(num_envs * num_agents)]
+        obs, reward, done, info = env.step(action)
+
+        print(f"\nreward: {reward} done: {done}")
+        # input()
+        if (isinstance(done, bool) and done) or (isinstance(done, list) and all(done)):
+            env.reset()
+        # env.render()
+
+        if i % 50 == 0:
+
+            if len(obs.shape) == 4:
+                # image = Image.fromarray((obs[0] * 255).astype(np.uint8))
+                # image.save("/home/wulfebw/Desktop/color.png")
+                import ipdb
+                ipdb.set_trace()
+                # plt.imshow(obs[0, :, :])
+            elif len(obs.shape) == 3:
+                plt.imshow(obs)
+
+            # fig, axs = plt.subplots(nrows=2, ncols=2, figsize=(12, 12))
+            # for j in range(1):
+            #     row = j // 2
+            #     col = j % 2
+            #     print(row)
+            #     print(col)
+            #     axs[row, col].imshow(obs[:, :])
+            plt.show()
+            plt.close()
+    end = time.time()
+    print(end - start)
+
+    return env
+
+
 if __name__ == "__main__":
-    main8()
+    main9()
