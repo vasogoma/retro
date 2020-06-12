@@ -12,6 +12,8 @@ import numpy as np
 import retro
 import tensorflow as tf
 
+from retro.examples.vec_frame_diff import VecFrameDiff
+
 SSB64_IMAGE_MEAN = [0.39777202, 0.56584128, 0.43192356]
 
 
@@ -60,7 +62,7 @@ def wrap_monitoring_n64(env,
 
 
 def main():
-    expdir = os.path.join("/home/wulfebw/experiments", "ssb64_005", "run_002")
+    expdir = os.path.join("/home/wulfebw/experiments", "ssb64_005", "run_003")
     os.makedirs(expdir, exist_ok=True)
     monitor_filepath = os.path.join(expdir, "monitor.csv")
     movie_dir = os.path.join(expdir, "movies")
@@ -91,38 +93,45 @@ def main():
         env = wrap_monitoring_n64(env, monitor_filepath=monitor_filepath, movie_dir=movie_dir)
         return env
 
-    def make_vec_env(nenvs=4, recurrent=False, grayscale=True, frame_stack=4):
+    def make_vec_env(nenvs=4, recurrent=False, grayscale=True, frame_stack=4, frame_diff=False):
         venv = SubprocVecEnv([lambda: make_env(rank, grayscale=grayscale) for rank in range(nenvs)])
         # Uncomment this line in place of the one above for debugging.
         # venv = DummyVecEnv([lambda: make_env(0)])
 
         if not recurrent:
-            # Perform the frame stack at the vectorized environment level as opposed to at
-            # the individual environment level. I think this allows you to communicate fewer
-            # images across processes.
-            venv = VecFrameStack(venv, frame_stack)
+            if frame_diff:
+                venv = VecFrameDiff(venv)
+            else:
+                # Perform the frame stack at the vectorized environment level as opposed to at
+                # the individual environment level. I think this allows you to communicate fewer
+                # images across processes.
+                venv = VecFrameStack(venv, frame_stack)
         return venv
 
     network_name = "impala_cnn"
     recurrent = "lstm" in network_name
     grayscale = False
     frame_stack = 2
-    venv = make_vec_env(nenvs=16, recurrent=recurrent, grayscale=grayscale, frame_stack=frame_stack)
-    ppo2.learn(
-        network=network_name,
-        env=venv,
-        total_timesteps=int(10e6),
-        nsteps=256,
-        nminibatches=8,
-        lam=0.95,
-        gamma=0.999,
-        noptepochs=3,
-        log_interval=1,
-        ent_coef=.01,
-        lr=lambda f: f * 5e-4,
-        cliprange=0.2,
-        save_interval=10,
-        load_path=load_filepath)
+    frame_diff = False
+    venv = make_vec_env(nenvs=16,
+                        recurrent=recurrent,
+                        grayscale=grayscale,
+                        frame_stack=frame_stack,
+                        frame_diff=frame_diff)
+    ppo2.learn(network=network_name,
+               env=venv,
+               total_timesteps=int(10e6),
+               nsteps=256,
+               nminibatches=8,
+               lam=0.95,
+               gamma=0.999,
+               noptepochs=3,
+               log_interval=1,
+               ent_coef=.01,
+               lr=lambda f: f * 5e-4,
+               cliprange=0.2,
+               save_interval=10,
+               load_path=load_filepath)
 
 
 if __name__ == '__main__':
