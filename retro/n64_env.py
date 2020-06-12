@@ -177,7 +177,17 @@ class N64Env(gym.Env):
                     a //= len(combo)
                     action |= combo[current]
             elif self.use_restricted_actions == retro.Actions.MULTI_DISCRETE:
-                ap = a[self.num_buttons * p:self.num_buttons * (p + 1)]
+                # # Is this entire thing just totally wrong?
+                # I think so
+                # maybe I should submit a pull request
+                # ap = a[self.num_buttons * p:self.num_buttons * (p + 1)]
+                # for i in range(len(ap)):
+                #     # I think this index should be modulo the number of button_combos?
+                #     # It definitely goes beyond the length of the list.
+                #     buttons = self.button_combos[i % len(self.button_combos)]
+                #     action |= buttons[ap[i]]
+                num_combos = len(self.button_combos)
+                ap = a[num_combos * p:num_combos * (p + 1)]
                 for i in range(len(ap)):
                     buttons = self.button_combos[i]
                     action |= buttons[ap[i]]
@@ -304,7 +314,8 @@ class N64Env(gym.Env):
         """Specific to ssb64 for now."""
         self.ssb64_game_data.update(self.ram)
         if self.players > 1:
-            reward = [self.ssb64_game_data.current_reward(p) for p in range(self.players)]
+            # Make the reward a numpy array so that certain wrappers work with it.
+            reward = np.array([self.ssb64_game_data.current_reward(p) for p in range(self.players)])
         else:
             reward = self.ssb64_game_data.current_reward()
         done = self.ssb64_game_data.is_done()

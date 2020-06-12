@@ -7,14 +7,43 @@ from baselines.common.vec_env import (SubprocVecEnv, DummyVecEnv, VecFrameStack)
 from baselines.common.wrappers import TimeLimit
 from baselines.logger import configure
 from baselines.ppo2 import ppo2
+import gym
+import numpy as np
 import retro
 import tensorflow as tf
 
+from retro.examples.vec_frame_diff import VecFrameDiff
 
-def wrap_n64(env, reward_scale=1 / 100.0, frame_skip=4, width=150, height=100, grayscale=True):
+SSB64_IMAGE_MEAN = [0.39777202, 0.56584128, 0.43192356]
+
+
+class ImageNormalizer(gym.ObservationWrapper):
+    def __init__(self, env, mean):
+        super().__init__(env)
+        self.mean = np.array(mean, dtype=np.float32)
+        # expand to roughly [-1,1]?
+        self.scale = 2
+        self.observation_space = gym.spaces.Box(low=-self.mean.max(),
+                                                high=1 - self.mean.min(),
+                                                shape=env.observation_space.shape,
+                                                dtype=np.float32)
+
+    def observation(self, observation):
+        return (observation - self.mean) * self.scale
+
+
+def wrap_n64(env,
+             reward_scale=1 / 100.0,
+             frame_skip=4,
+             width=150,
+             height=100,
+             grayscale=True,
+             normalize_observations=True):
     env = MaxAndSkipEnv(env, skip=frame_skip)
     env = WarpFrame(env, width=width, height=height, grayscale=grayscale)
     env = ScaledFloatFrame(env)
+    if normalize_observations:
+        env = ImageNormalizer(env, mean=SSB64_IMAGE_MEAN)
     env = RewardScaler(env, scale=1 / 100.0)
     return env
 
@@ -33,13 +62,13 @@ def wrap_monitoring_n64(env,
 
 
 def main():
-    expdir = os.path.join("/home/wulfebw/experiments", "ssb64_004", "run_008")
+    expdir = os.path.join("/home/wulfebw/experiments", "ssb64_005", "run_003")
     os.makedirs(expdir, exist_ok=True)
     monitor_filepath = os.path.join(expdir, "monitor.csv")
     movie_dir = os.path.join(expdir, "movies")
     os.makedirs(movie_dir, exist_ok=True)
-    # load_filepath = None
-    load_filepath = "/home/wulfebw/experiments/ssb64_004/run_006/checkpoints/00100"
+    load_filepath = None
+    # load_filepath = "/home/wulfebw/experiments/ssb64_004/run_006/checkpoints/00100"
 
     # This configures baselines logging.
     configure(dir=expdir)
@@ -64,23 +93,31 @@ def main():
         env = wrap_monitoring_n64(env, monitor_filepath=monitor_filepath, movie_dir=movie_dir)
         return env
 
-    def make_vec_env(nenvs=4, recurrent=False, grayscale=True, frame_stack=4):
+    def make_vec_env(nenvs=4, recurrent=False, grayscale=True, frame_stack=4, frame_diff=False):
         venv = SubprocVecEnv([lambda: make_env(rank, grayscale=grayscale) for rank in range(nenvs)])
         # Uncomment this line in place of the one above for debugging.
         # venv = DummyVecEnv([lambda: make_env(0)])
 
         if not recurrent:
-            # Perform the frame stack at the vectorized environment level as opposed to at
-            # the individual environment level. I think this allows you to communicate fewer
-            # images across processes.
-            venv = VecFrameStack(venv, frame_stack)
+            if frame_diff:
+                venv = VecFrameDiff(venv)
+            else:
+                # Perform the frame stack at the vectorized environment level as opposed to at
+                # the individual environment level. I think this allows you to communicate fewer
+                # images across processes.
+                venv = VecFrameStack(venv, frame_stack)
         return venv
 
     network_name = "impala_cnn"
     recurrent = "lstm" in network_name
     grayscale = False
     frame_stack = 2
-    venv = make_vec_env(nenvs=16, recurrent=recurrent, grayscale=grayscale, frame_stack=frame_stack)
+    frame_diff = False
+    venv = make_vec_env(nenvs=16,
+                        recurrent=recurrent,
+                        grayscale=grayscale,
+                        frame_stack=frame_stack,
+                        frame_diff=frame_diff)
     ppo2.learn(network=network_name,
                env=venv,
                total_timesteps=int(10e6),
