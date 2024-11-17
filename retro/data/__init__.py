@@ -286,9 +286,10 @@ def get_romfile_path(game, inttype=Integrations.DEFAULT):
     """
     for extension in EMU_EXTENSIONS.keys():
         possible_path = get_file_path(game, "rom" + extension, inttype)
+        print(possible_path)
         if possible_path:
             return possible_path
-
+        return "/home/vasogoma/test2/retro/roms/Super Smash Bros.n64"
     raise FileNotFoundError("No romfiles found for game: %s" % game)
 
 
