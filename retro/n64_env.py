@@ -58,13 +58,16 @@ class N64Env(gym.Env):
         elif state == retro.State.DEFAULT:
             self.statename = None
             try:
-                with open(metadata_path) as f:
-                    metadata = json.load(f)
-                if 'default_player_state' in metadata and self.players <= len(
-                        metadata['default_player_state']):
-                    self.statename = metadata['default_player_state'][self.players - 1]
-                elif 'default_state' in metadata:
-                    self.statename = metadata['default_state']
+                if metadata_path:
+                    with open(metadata_path) as f:
+                        metadata = json.load(f)
+                    if 'default_player_state' in metadata and self.players <= len(
+                            metadata['default_player_state']):
+                        self.statename = metadata['default_player_state'][self.players - 1]
+                    elif 'default_state' in metadata:
+                        self.statename = metadata['default_state']
+                    else:
+                        self.statename = None
                 else:
                     self.statename = None
             except (IOError, json.JSONDecodeError):
@@ -245,7 +248,8 @@ class N64Env(gym.Env):
         # Derive a random seed. This gets passed as a uint, but gets
         # checked as an int elsewhere, so we need to keep it below
         # 2**31.
-        seed2 = seeding.hash_seed(seed1 + 1) % 2**31
+        seed2=0
+        #seed2 = seeding.hash_seed(seed1 + 1) % 2**31
         return [seed1, seed2]
 
     def render(self, mode='human', close=False):
@@ -259,7 +263,7 @@ class N64Env(gym.Env):
             return img
         elif mode == "human":
             if self.viewer is None:
-                from gym.envs.classic_control.rendering import SimpleImageViewer
+                #from gym.envs.classic_control.rendering import SimpleImageViewer
                 self.viewer = SimpleImageViewer()
             self.viewer.imshow(img)
             return self.viewer.isopen
