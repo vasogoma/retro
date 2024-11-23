@@ -139,10 +139,10 @@ void add_interrupt_event_count(struct cp0* cp0, int type, unsigned int count)
     const uint32_t* cp0_regs = r4300_cp0_regs(cp0);
     unsigned int* cp0_next_interrupt = r4300_cp0_next_interrupt(cp0);
     int* cp0_cycle_count = r4300_cp0_cycle_count(cp0);
-
-    if (get_event(&cp0->q, type)) {
-        DebugMessage(M64MSG_VERBOSE, "two events of type 0x%x in interrupt queue", type);
-    }
+    get_event(&cp0->q, type);
+    //if (get_event(&cp0->q, type)) {
+        //DebugMessage(M64MSG_VERBOSE, "two events of type 0x%x in interrupt queue", type);
+    //}
 
     event = alloc_node(&cp0->q.pool);
     if (event == NULL)
