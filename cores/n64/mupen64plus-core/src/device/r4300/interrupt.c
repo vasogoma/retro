@@ -141,7 +141,7 @@ void add_interrupt_event_count(struct cp0* cp0, int type, unsigned int count)
     int* cp0_cycle_count = r4300_cp0_cycle_count(cp0);
 
     if (get_event(&cp0->q, type)) {
-        DebugMessage(M64MSG_WARNING, "two events of type 0x%x in interrupt queue", type);
+        DebugMessage(M64MSG_VERBOSE, "two events of type 0x%x in interrupt queue", type);
     }
 
     event = alloc_node(&cp0->q.pool);

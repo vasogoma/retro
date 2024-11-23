@@ -131,7 +131,12 @@ def main4():
         print(reward)
         print(done)
 
-        env.render()
+        img=env.render()
+        if (i % 50 == 0):
+            plt.imshow(img)
+            plt.savefig(f"pics/color{i}.png")
+        #plt.imshow(img)
+        #plt.savefig(f"pics/color{i}.png")
     end = time.time()
     print(end - start)
 
@@ -547,4 +552,4 @@ def main5():
 
 
 if __name__ == "__main__":
-    main5()
+    main4()

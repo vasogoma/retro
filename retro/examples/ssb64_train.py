@@ -64,7 +64,7 @@ class ImageNormalizer(gym.ObservationWrapper):
 
 
 def main():
-    expdir = os.path.join("/home/vasogoma/test2/retro/experiments", "ssb64_005", "run_003")
+    expdir = os.path.join("/home/vasogoma/retro/experiments", "ssb64_005", "run_003")
     os.makedirs(expdir, exist_ok=True)
     monitor_filepath = os.path.join(expdir, "monitor.csv")
     movie_dir = os.path.join(expdir, "movies")
@@ -87,7 +87,8 @@ def main():
 
     def make_env(rank, grayscale=True):
         retro.data.add_custom_integration("custom")
-        state = "ssb64.pikachu.dk.dreamland.state"
+        #state = "ssb64.pikachu.dk.dreamland.state"
+        state = "test2.state"
         env = retro.n64_env.N64Env(game="SuperSmashBros-N64",
                                    use_restricted_actions=retro.Actions.MULTI_DISCRETE,
                                    inttype=retro.data.Integrations.CUSTOM,
@@ -118,32 +119,46 @@ def main():
     grayscale = False
     frame_stack = 2
     frame_diff = False
+
     env= make_env(0, grayscale=grayscale)
     i=0
     state = env.reset()
-
     import cv2
 
+    #remove the old images
+    for file in os.listdir("pics"):
+        os.remove(f"pics/{file}")
+    dqn_reward_accum = 0
+    dqn_reward_accum2 = 0
     while(True):
         #env.reset()
         #env.step([1,1,1])
-        action = env.action_space.sample()
+        action1 = env.action_space.sample()
         action2 = env.action_space.sample()
-        actions= [action[0], action[1], action[0], action2[0], action2[1], action2[1]]
-        print(actions)
+        actions= [action1[0], action1[1], action1[2], action2[0], action2[1], action2[2]]
+        #print(actions)
         i+=1
         state, reward, terminal, info = env.step(actions)
-        plt.imshow(state)
-        plt.savefig(f"pics/color{i}.png")
-        #plt.show()
+        dqn_reward_accum += reward[0]
+        dqn_reward_accum2 += reward[1]
         # Update the window with the new image
-        print(f"i: {i}, reward: {reward}, terminal: {terminal}")
+        #print(f"i: {i}, reward: {reward}, reward accum p1 {dqn_reward_accum}, reward accum p2 {dqn_reward_accum2}")
 
         if i>1000:
             break
+        if i%100==0:
+            plt.imshow(state)
+            plt.savefig(f"pics/color{i}.png")
+        if terminal:
+            plt.imshow(state)
+            plt.savefig(f"pics/color{i}.png")
+            print(f"reward: {reward}")
+            break
+
         #env.step(env.action_space.sample())
         #env.reset()
     #convert the images to a video mp4
+    return
     img_array = []
     for i in range(1,i):
         img_path = f"pics/color{i}.png"

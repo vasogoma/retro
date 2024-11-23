@@ -289,7 +289,7 @@ def get_romfile_path(game, inttype=Integrations.DEFAULT):
         print(possible_path)
         if possible_path:
             return possible_path
-        return "/home/vasogoma/test2/retro/roms/Super Smash Bros.n64"
+        return "/home/vasogoma/retro/roms/SuperSmashBros.n64"
     raise FileNotFoundError("No romfiles found for game: %s" % game)
 
 
