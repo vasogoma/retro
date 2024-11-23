@@ -45,7 +45,6 @@ class RetroEnv(gym.Env):
         elif state == retro.State.DEFAULT:
             self.statename = None
             try:
-
                 #with open(metadata_path) as f:
                 #    metadata = json.load(f)
                 if 'default_player_state' in metadata and self.players <= len(metadata['default_player_state']):
@@ -85,6 +84,7 @@ class RetroEnv(gym.Env):
         # We can't have more than one emulator per process. Before creating an
         # emulator, ensure that unused ones are garbage-collected
         gc.collect()
+        print(f"rom_path: {rom_path}")  
         self.em = retro.RetroEmulator(rom_path)
         self.em.configure_data(self.data)
         self.em.step()
@@ -227,7 +227,7 @@ class RetroEnv(gym.Env):
             return img
         elif mode == "human":
             if self.viewer is None:
-                #from gym.envs.classic_control.rendering import SimpleImageViewer
+                from gym.envs.classic_control.rendering import SimpleImageViewer
                 self.viewer = SimpleImageViewer()
             self.viewer.imshow(img)
             return self.viewer.isopen

@@ -195,7 +195,7 @@ class Interactive(abc.ABC):
             now = time.time()
             self._update(now - prev_frame_time)
             prev_frame_time = now
-            #self._draw()
+            self._draw()
             self._win.flip()
 
 

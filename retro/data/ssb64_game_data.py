@@ -7,7 +7,7 @@ class SSB64GameData:
     # Assume only two players.
     num_players = 2
 
-    def __init__(self, penalize_taking_damage=False, reward_inflicting_damage=True):
+    def __init__(self, penalize_taking_damage=True, reward_inflicting_damage=True):
         self.penalize_taking_damage = penalize_taking_damage
         self.reward_inflicting_damage = reward_inflicting_damage
         self.ram = None
@@ -23,7 +23,9 @@ class SSB64GameData:
         for player_index in range(self.num_players):
             stock = self.ram.player_stock(player_index)
             # Stock should only decrease (handles an edge case with defaultdict usage / initialization).
-            stock_change = min(0, stock - self.player_state[player_index]["stock"])
+            stock_change = 0
+            if stock < self.player_state[player_index]["stock"]:
+                stock_change= 1
             self.player_state[player_index]["stock"] = stock
             self.player_state[player_index]["stock_change"] = stock_change
 
@@ -42,7 +44,7 @@ class SSB64GameData:
             return -100
 
         if self.penalize_taking_damage:
-            reward = -self.player_state[player_index]["damage_change"]
+            reward = -self.player_state[player_index]["damage_change"]*0.1
         else:
             reward = 0
 
