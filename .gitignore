@@ -145,3 +145,4 @@ Temporary
 src/ui/Makefile
 tests/Makefile
 *.3
+*.OpenGL.shaders

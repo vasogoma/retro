@@ -11,6 +11,7 @@ import gym
 import numpy as np
 import retro
 import matplotlib.pyplot as plt
+from baselines import deepq
 
 #import tensorflow as tf
 
@@ -62,7 +63,16 @@ class ImageNormalizer(gym.ObservationWrapper):
 #         env = MovieRecord(env, movie_dir, k=record_movie_every)
 #     return env
 
-
+def step_callback(lcl, _glb):
+    # stop training if reward exceeds 199
+    if lcl['t'] % 1000 == 0:
+        print(lcl['episode_rewards'])
+    if len(lcl['episode_rewards']) < 101:
+        return False
+    mean_reward = np.mean(lcl['episode_rewards'][-101:-1])
+    if lcl['t'] > 5000000 or mean_reward>0:
+        return True
+    return False
 def main():
     expdir = os.path.join("/home/vasogoma/retro/experiments", "ssb64_005", "run_003")
     os.makedirs(expdir, exist_ok=True)
@@ -88,13 +98,15 @@ def main():
     def make_env(rank, grayscale=True):
         retro.data.add_custom_integration("custom")
         #state = "ssb64.pikachu.dk.dreamland.state"
-        state = "test2.state"
+        state = "dk-samus-ai.state"
         env = retro.n64_env.N64Env(game="SuperSmashBros-N64",
-                                   use_restricted_actions=retro.Actions.MULTI_DISCRETE,
+#                                   use_restricted_actions=retro.Actions.MULTI_DISCRETE,
+                                   use_restricted_actions=retro.Actions.DISCRETE,
                                    inttype=retro.data.Integrations.CUSTOM,
                                    state=state,
-                                   players=2,
-                                   obs_type=retro.Observations.IMAGE)
+                                   players=1,
+#                                   obs_type=retro.Observations.IMAGE)
+                                   obs_type=retro.Observations.RAM)
      #   env = wrap_n64(env, grayscale=grayscale)
      #   env = wrap_monitoring_n64(env, monitor_filepath=monitor_filepath, movie_dir=movie_dir)
         return env
@@ -121,6 +133,22 @@ def main():
     frame_diff = False
 
     env= make_env(0, grayscale=grayscale)
+
+    act=deepq.learn(
+        env,
+        network='mlp',
+        lr=1e-3,
+        total_timesteps=1000000,
+        buffer_size=6000,
+        exploration_fraction=0.1,
+        exploration_final_eps=0.02,
+        print_freq=10,
+        checkpoint_freq=10000,
+        callback=step_callback
+    )
+    print("Saving model to cartpole_model.pkl")
+    act.save("cartpole_model.pkl")
+    1/0
     i=0
     state = env.reset()
     import cv2
@@ -136,25 +164,30 @@ def main():
         action1 = env.action_space.sample()
         action2 = env.action_space.sample()
         actions= [action1[0], action1[1], action1[2], action2[0], action2[1], action2[2]]
-        #print(actions)
         i+=1
         state, reward, terminal, info = env.step(actions)
+        
         dqn_reward_accum += reward[0]
         dqn_reward_accum2 += reward[1]
         # Update the window with the new image
         #print(f"i: {i}, reward: {reward}, reward accum p1 {dqn_reward_accum}, reward accum p2 {dqn_reward_accum2}")
-
+        state_img= env.get_screen()
         if i>1000:
             break
         if i%100==0:
-            plt.imshow(state)
+            plt.imshow(state_img)
             plt.savefig(f"pics/color{i}.png")
+            print(state)
+            print("------------------")
+            print("Step: ", i)
+            print(f"C: {state[0]}, P: ({state[1]},{state[2]}), V: ({state[3]},{state[4]}), MS: {state[5]}, MF: {state[6]}, D: {state[7]}, DMG: {state[8]}")
+            print(f"C: {state[9]}, P: ({state[10]},{state[11]}), V: ({state[12]},{state[13]}), MS: {state[14]}, MF: {state[15]}, D: {state[16]}, DMG: {state[17]}")
+
         if terminal:
-            plt.imshow(state)
+            plt.imshow(state_img)
             plt.savefig(f"pics/color{i}.png")
             print(f"reward: {reward}")
             break
-
         #env.step(env.action_space.sample())
         #env.reset()
     #convert the images to a video mp4

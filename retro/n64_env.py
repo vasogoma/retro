@@ -196,7 +196,6 @@ class N64Env(gym.Env):
         self.statename = state
         self.initial_state = None
         self.players = players
-
         if game != "SuperSmashBros-N64":
             raise NotImplementedError("Only ssb64 supported so far")
         self.ssb64_game_data = retro.data.SSB64GameData()
@@ -289,11 +288,56 @@ class N64Env(gym.Env):
             kwargs['dtype'] = np.uint8
 
         if self._obs_type == retro.Observations.RAM:
-            shape = self.get_ram().shape
+            low=np.array([
+                0,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                0,
+                0,
+                -1,
+                0,
+
+                0,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                0,
+                0,
+                -1,
+                0
+            ], dtype=np.float32)
+            high=np.array([
+                12,
+                np.finfo(np.float32).max,
+                np.finfo(np.float32).max,
+                np.finfo(np.float32).max,
+                np.finfo(np.float32).max,
+                255,
+                np.iinfo(np.int32).max,
+                1,
+                999,
+
+                12,
+                np.finfo(np.float32).max,
+                np.finfo(np.float32).max,
+                np.finfo(np.float32).max,
+                np.finfo(np.float32).max,
+                255,
+                np.iinfo(np.int32).max,
+                1,
+                999,
+                
+                ], dtype=np.float32)
+            print(low)
+            print(high)
+            self.observation_space = gym.spaces.Box(low=low,high=high, **kwargs)
         else:
             img = [self.get_screen(p) for p in range(players)]
             shape = img[0].shape
-        self.observation_space = gym.spaces.Box(low=0, high=255, shape=shape, **kwargs)
+            self.observation_space = gym.spaces.Box(low=0, high=255, shape=shape, **kwargs)
 
         self.use_restricted_actions = use_restricted_actions
         self.movie = None
@@ -313,11 +357,13 @@ class N64Env(gym.Env):
 
     def _update_obs(self):
         self.ram = self.get_ram()
-        self.img = self.get_screen()
-
         if self._obs_type == retro.Observations.RAM:
-            return self.ram
+            player_1_obs = self.ssb64_game_data.ram.player_observations(0)
+            player_2_obs = self.ssb64_game_data.ram.player_observations(1)
+            return np.concatenate([player_1_obs, player_2_obs])
+            #return self.ram
         elif self._obs_type == retro.Observations.IMAGE:
+            self.img = self.get_screen()
             return self.img
         else:
             raise ValueError('Unrecognized observation type: {}'.format(self._obs_type))
@@ -393,6 +439,8 @@ class N64Env(gym.Env):
         self.data.reset()
         self.ssb64_game_data.reset()
         self.data.update_ram()
+        self.ram = self.get_ram()
+        self.ssb64_game_data.update(self.ram)
         return self._update_obs()
 
     def seed(self, seed=None):
@@ -463,7 +511,7 @@ class N64Env(gym.Env):
         if not statename.endswith('.state'):
             statename += '.state'
         # open the state file and read it into memory
-        with open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
+        with gzip.open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
             self.initial_state = fh.read()
 
         self.statename = statename

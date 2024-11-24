@@ -41,7 +41,7 @@ class SSB64GameData:
     def current_reward(self, player_index=0):
         stock_change = self.player_state[player_index]["stock_change"]
         if stock_change != 0:
-            return -100
+            return -300
 
         if self.penalize_taking_damage:
             reward = -self.player_state[player_index]["damage_change"]*0.1
@@ -55,7 +55,7 @@ class SSB64GameData:
             if self.reward_inflicting_damage:
                 reward += self.player_state[other_player_index]["damage_change"]
             if self.player_state[other_player_index]["stock_change"] != 0:
-                reward += 100
+                reward += 300
 
         return reward
 
