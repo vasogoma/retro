@@ -146,3 +146,8 @@ src/ui/Makefile
 tests/Makefile
 *.3
 *.OpenGL.shaders
+*.csv
+*.bk2
+/tf_checkpoints*/*
+*.png
+*.mp4

@@ -93,8 +93,12 @@ class SSB64RAM:
         self.ram = ram
 
     def assert_valid_ram_address(self, addr):
-        assert addr > 0, f"Address must be > 0: {addr}"
-        assert addr < len(self.ram), f"Address must be < size of ram: {addr}"
+        if addr < 0:
+            raise ValueError(f"Address must be > 0: {addr}")
+        if addr >= len(self.ram):
+            raise ValueError(f"Address must be < size of ram: {addr}")
+        #assert addr > 0, f"Address must be > 0: {addr}"
+        #assert addr < len(self.ram), f"Address must be < size of ram: {addr}"
 
     def read_address(self, ptr):
         self.assert_valid_ram_address(ptr)
@@ -225,6 +229,34 @@ class SSB64RAM:
     def player_observations(self, player_index):
         player_data = self.player_data(player_index)
         character = self.player_character(player_data)
+        is_mario = character == 0
+        is_fox = character == 1
+        is_dk = character == 2
+        is_samus = character == 3
+        is_luigi = character == 4
+        is_link = character == 5
+        is_yoshi = character == 6
+        is_falcon = character == 7
+        is_kirby = character == 8
+        is_pikachu = character == 9
+        is_jigglypuff = character == 10
+        is_ness = character == 11
+
+        position_x = self.player_position_x(player_data)
+        position_y = self.player_position_y(player_data)
+        velocity_x = self.player_velocity_x(player_data)
+        velocity_y = self.player_velocity_y(player_data)
+        movement_state = self.player_movement_state(player_data)
+        movement_frame = self.player_movement_frame(player_data)
+        direction = self.player_direction(player_data)
+        return [is_mario, is_fox, is_dk, is_samus, is_luigi, is_link, is_yoshi, is_falcon, is_kirby, is_pikachu, is_jigglypuff, is_ness, 
+                position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction]
+        #return character, position, velocity, movement_state, movement_frame, direction, damage
+    
+        #get all relevant observations for a player
+    def player_observations_old(self, player_index):
+        player_data = self.player_data(player_index)
+        character = self.player_character(player_data)
         position_x = self.player_position_x(player_data)
         position_y = self.player_position_y(player_data)
         velocity_x = self.player_velocity_x(player_data)
@@ -233,9 +265,7 @@ class SSB64RAM:
         movement_frame = self.player_movement_frame(player_data)
         direction = self.player_direction(player_data)
         damage = self.player_damage(player_index)
-        return [character, position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction, damage]
-        #return character, position, velocity, movement_state, movement_frame, direction, damage
-    
+        return [character, position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction,damage]
 def main():
     # filepath = "/home/wulfebw/programming/retro/save_states/dreamland.npy"
     # filepath = "/home/wulfebw/programming/retro/save_states/peaches.npy"

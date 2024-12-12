@@ -2,6 +2,9 @@ import collections
 
 from retro.data.ssb64_ram import SSB64RAM
 
+STAGE_BOUNDARY_LEFT = -1900
+STAGE_BOUNDARY_RIGHT = 2300
+STAGE_BOUNDARY_Y = 0
 
 class SSB64GameData:
     # Assume only two players.
@@ -29,6 +32,12 @@ class SSB64GameData:
             self.player_state[player_index]["stock"] = stock
             self.player_state[player_index]["stock_change"] = stock_change
 
+            #load positions and velocities
+            player_data= self.ram.player_data(player_index)
+            self.player_state[player_index]["x"] = self.ram.player_position_x(player_data)
+            self.player_state[player_index]["y"] = self.ram.player_position_y(player_data)
+
+
             damage = self.ram.player_damage(player_index)
             damage_change = damage - self.player_state[player_index]["damage"]
             self.player_state[player_index]["damage"] = damage
@@ -38,11 +47,14 @@ class SSB64GameData:
                 # When a stock is lost, don't count the change in damage.
                 self.player_state[player_index]["damage_change"] = 0
 
+
     def current_reward(self, player_index=0):
+        # Penalize loosing a live (stock).
         stock_change = self.player_state[player_index]["stock_change"]
         if stock_change != 0:
-            return -300
+            reward= -100
 
+        # Penalize taking damage.
         if self.penalize_taking_damage:
             reward = -self.player_state[player_index]["damage_change"]*0.1
         else:
@@ -53,11 +65,21 @@ class SSB64GameData:
             if other_player_index == player_index:
                 continue
             if self.reward_inflicting_damage:
-                reward += self.player_state[other_player_index]["damage_change"]
+                reward += self.player_state[other_player_index]["damage_change"]*2
             if self.player_state[other_player_index]["stock_change"] != 0:
                 reward += 300
 
-        return reward
+        # Penalize falling off the stage.
+        if self.player_state[player_index]['x'] < STAGE_BOUNDARY_LEFT or self.player_state[player_index]['x'] > STAGE_BOUNDARY_RIGHT or self.player_state[player_index]['y'] < STAGE_BOUNDARY_Y:
+            reward -= 1
+
+        # Reward for being alive.
+        reward += 0.01
+        
+        # clamp between -300 and 300
+        reward= max(min(reward, 300), -300)
+        # normalize between -1 and 1
+        return reward/300
 
     def is_done(self):
         nonzero_stock_count = 0

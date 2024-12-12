@@ -18,6 +18,7 @@ __all__ = ['RetroEnv']
 import hashlib
 import struct
 from typing import Optional 
+import numpy as np
 
 # TODO: don't hardcode sizeof_int here
 def _bigint_from_bytes(bt: bytes) -> int:
@@ -185,6 +186,8 @@ class N64Env(gym.Env):
                  record=False,
                  players=1,
                  inttype=retro.data.Integrations.STABLE,
+                 is_random_state=False,
+                 use_exact_keys=False,
                  obs_type=retro.Observations.IMAGE):
         if not hasattr(self, 'spec'):
             self.spec = None
@@ -196,6 +199,9 @@ class N64Env(gym.Env):
         self.statename = state
         self.initial_state = None
         self.players = players
+        self.is_random_state = is_random_state
+        self.step_count = 0
+        self.use_exact_keys = use_exact_keys
         if game != "SuperSmashBros-N64":
             raise NotImplementedError("Only ssb64 supported so far")
         self.ssb64_game_data = retro.data.SSB64GameData()
@@ -225,7 +231,10 @@ class N64Env(gym.Env):
                 pass
 
         if self.statename:
-            self.load_state(self.statename, inttype)
+            if self.is_random_state:
+                self.load_random_state(inttype)
+            else:
+                self.load_state(self.statename, inttype)
 
         self.data = retro.data.GameData()
 
@@ -289,17 +298,29 @@ class N64Env(gym.Env):
 
         if self._obs_type == retro.Observations.RAM:
             low=np.array([
-                0,
-                np.finfo(np.float32).min,
-                np.finfo(np.float32).min,
-                np.finfo(np.float32).min,
-                np.finfo(np.float32).min,
-                0,
-                0,
-                -1,
-                0,
 
-                0,
+                # Player 1
+                # Character one hot encodings
+                # - is_mario
+                # - is_fox
+                # - is_dk
+                # - is_samus
+                # - is_luigi
+                # - is_link
+                # - is_yoshi
+                # - is_falcon
+                # - is_kirby
+                # - is_pikachu
+                # - is_jigglypuff
+                # - is_ness
+                # X position
+                # Y position
+                # X velocity
+                # Y velocity
+                # movement state
+                # movement frame
+                # direction
+                0,0,0,0,0,0,0,0,0,0,0,0,
                 np.finfo(np.float32).min,
                 np.finfo(np.float32).min,
                 np.finfo(np.float32).min,
@@ -307,10 +328,19 @@ class N64Env(gym.Env):
                 0,
                 0,
                 -1,
-                0
+                
+                #player 2
+                0,0,0,0,0,0,0,0,0,0,0,0,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                np.finfo(np.float32).min,
+                0,
+                0,
+                -1,
             ], dtype=np.float32)
             high=np.array([
-                12,
+                1,1,1,1,1,1,1,1,1,1,1,1,
                 np.finfo(np.float32).max,
                 np.finfo(np.float32).max,
                 np.finfo(np.float32).max,
@@ -318,9 +348,8 @@ class N64Env(gym.Env):
                 255,
                 np.iinfo(np.int32).max,
                 1,
-                999,
 
-                12,
+                1,1,1,1,1,1,1,1,1,1,1,1,
                 np.finfo(np.float32).max,
                 np.finfo(np.float32).max,
                 np.finfo(np.float32).max,
@@ -328,7 +357,6 @@ class N64Env(gym.Env):
                 255,
                 np.iinfo(np.int32).max,
                 1,
-                999,
                 
                 ], dtype=np.float32)
             print(low)
@@ -358,9 +386,13 @@ class N64Env(gym.Env):
     def _update_obs(self):
         self.ram = self.get_ram()
         if self._obs_type == retro.Observations.RAM:
-            player_1_obs = self.ssb64_game_data.ram.player_observations(0)
-            player_2_obs = self.ssb64_game_data.ram.player_observations(1)
-            return np.concatenate([player_1_obs, player_2_obs])
+            try:
+                player_1_obs = self.ssb64_game_data.ram.player_observations(0)
+                player_2_obs = self.ssb64_game_data.ram.player_observations(1)
+                return np.concatenate([player_1_obs, player_2_obs])
+            except:
+                print(f"Error getting player observations for scenario {self.statename} at step {self.step_count}")
+                return None
             #return self.ram
         elif self._obs_type == retro.Observations.IMAGE:
             self.img = self.get_screen()
@@ -368,9 +400,10 @@ class N64Env(gym.Env):
         else:
             raise ValueError('Unrecognized observation type: {}'.format(self._obs_type))
 
-    def action_to_array(self, a):
+    def action_to_array(self, acts):
         actions = []
         for p in range(self.players):
+            a=acts[p]
             action = 0
             if self.use_restricted_actions == retro.Actions.DISCRETE:
                 for combo in self.button_combos:
@@ -407,22 +440,76 @@ class N64Env(gym.Env):
     def step(self, a):
         if self.img is None and self.ram is None:
             raise RuntimeError('Please call env.reset() before env.step()')
-
-        for p, ap in enumerate(self.action_to_array(a)):
-            if self.movie:
-                for i in range(self.num_buttons):
-                    self.movie.set_key(i, ap[i], p)
-            self.em.set_button_mask(ap, p)
+        print(f"Step {self.step_count} with action {a}")
+        save_p = [] # Save button pressed
+        save_ap = [] # Save the actions for each player
+        if self.use_exact_keys:
+            for p in range(self.players):
+                ap= a[12*p:12*(p+1)]
+                #convert to ints
+                ap = [int(i) for i in ap]
+                #print(f"Player {p} action: {ap}")
+                self.em.set_button_mask(ap, p)
+                save_p.append(p)
+                save_ap.append(ap)
+        else:
+            for p, ap in enumerate(self.action_to_array(a)):
+                #ap[0] = 0 # Action 'A' (normal attack)
+                #ap[1] = 0 # Action 'B' (special attack)
+                #ap[2] = 0 # SELECT (DO NOT USE!)
+                #ap[3] = 0 # START (DO NOT USE!)
+                #ap[4] = 0 # UP (Jump) 
+                #ap[5] = 0 # DOWN (Crouch)
+                #ap[6] = 0 # LEFT
+                #ap[7] = 0 # RIGHT
+                #ap[8] = 0 # R or ?? Grab or ??  (DO NOT USE!)
+                #ap[9] = 0 # R or ?? Grab or ?? (DO NOT USE!)
+                #ap[10] = 0 # L Taunt (DO NOT USE!)
+                #ap[11] = 0 # Z (Shield)
+                #print(f"Player {p} action: {ap}")
+                if self.movie:
+                    for i in range(self.num_buttons):
+                        self.movie.set_key(i, ap[i], p)
+                self.em.set_button_mask(ap, p)
+                save_p.append(p)
+                save_ap.append(ap)
 
         if self.movie:
             self.movie.step()
         self.em.step()
         self.data.update_ram()
+
+        #Make a second step where we release the buttons 'B' 'A' and 'UP'
+        for j in range(2):
+            for i in range(len(save_p)):
+                p = save_p[i]
+                ap = save_ap[i]
+                ap[0] = 0
+                ap[1] = 0
+                ap[4] = 0
+                self.em.set_button_mask(ap, p)
+                #print(f"Player {p} action: {ap}")
+
+            if self.movie:
+                self.movie.step()
+            self.em.step()
+            self.data.update_ram()
+
         ob = self._update_obs()
+        #print(f"Step {self.step_count}")
+        #print(f"Player 1: {self.ssb64_game_data.ram.player_observations(0)}")
+        #print(f"Player 2: {self.ssb64_game_data.ram.player_observations(1)}")
+
+        if ob is None:
+            return ob, 0, True, {}
         rew, done, info = self.compute_step()
+        self.step_count += 1
         return ob, rew, bool(done), dict(info)
 
     def reset(self):
+        self.step_count = 0
+        if self.is_random_state:
+            self.load_random_state()
         if self.initial_state:
             self.em.set_state(self.initial_state)
         for p in range(self.players):
@@ -441,7 +528,8 @@ class N64Env(gym.Env):
         self.data.update_ram()
         self.ram = self.get_ram()
         self.ssb64_game_data.update(self.ram)
-        return self._update_obs()
+        obs= self._update_obs()
+        return obs
 
     def seed(self, seed=None):
         self.np_random, seed1 = seeding.np_random(seed)
@@ -508,12 +596,30 @@ class N64Env(gym.Env):
         return img[y:h, x:w]
 
     def load_state(self, statename, inttype=retro.data.Integrations.DEFAULT):
-        if not statename.endswith('.state'):
-            statename += '.state'
+        if type(statename) is not str:
+            self.initial_state = statename
+            print(f"Loaded state from memory")
+            self.statename = "Playback"
+        else:
+            print(f"Loading state {statename}")
+            if not statename.endswith('.state'):
+                statename += '.state'
+            # open the state file and read it into memory
+            with gzip.open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
+                self.initial_state = fh.read()
+            self.statename = statename
+
+    def load_random_state(self, inttype=retro.data.Integrations.DEFAULT):
+        characters = ["mario", "dk", "fox", "kirby", "link", "samus", "pikachu", "yoshi"]
+        player1= characters[np.random.randint(0, len(characters))]
+        player2= characters[np.random.randint(0, len(characters))]
+        #statename = f"{player1}-{player2}-ai3.state"
+        statename = f"{player1}-{player2}-ai1.state"
+        
         # open the state file and read it into memory
         with gzip.open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
             self.initial_state = fh.read()
-
+        print(f"Loaded random state {statename}")
         self.statename = statename
 
     def compute_step(self):
