@@ -251,7 +251,6 @@ class SSB64RAM:
         direction = self.player_direction(player_data)
         return [is_mario, is_fox, is_dk, is_samus, is_luigi, is_link, is_yoshi, is_falcon, is_kirby, is_pikachu, is_jigglypuff, is_ness, 
                 position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction]
-        #return character, position, velocity, movement_state, movement_frame, direction, damage
     
         #get all relevant observations for a player
     def player_observations_old(self, player_index):

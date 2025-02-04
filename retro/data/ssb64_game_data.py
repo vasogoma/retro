@@ -65,9 +65,14 @@ class SSB64GameData:
             if other_player_index == player_index:
                 continue
             if self.reward_inflicting_damage:
-                reward += self.player_state[other_player_index]["damage_change"]*2
+                reward += self.player_state[other_player_index]["damage_change"]*5
             if self.player_state[other_player_index]["stock_change"] != 0:
-                reward += 300
+                return 20
+                reward += 400
+        
+        # Penalize getting near the stage edges.
+        if self.player_state[player_index]['x'] < (STAGE_BOUNDARY_LEFT + 100) or self.player_state[player_index]['x'] > (STAGE_BOUNDARY_RIGHT -100):
+            reward -= .5
 
         # Penalize falling off the stage.
         if self.player_state[player_index]['x'] < STAGE_BOUNDARY_LEFT or self.player_state[player_index]['x'] > STAGE_BOUNDARY_RIGHT or self.player_state[player_index]['y'] < STAGE_BOUNDARY_Y:

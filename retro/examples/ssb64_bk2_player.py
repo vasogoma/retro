@@ -22,18 +22,14 @@ def make_env(state,num_players=1):
 
 def main():
     create_vid=True # Set to True to create a video of the match, set to False to not create a video
-
-    #To use later for multiprocessing
-    #gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.9)
-    #gpu_options = tf.GPUOptions(allow_growth=True)
-
-    movie = retro.Movie('SuperSmashBros-N64-pikachu-pikachu-vs-000000.bk2')
+    movie = retro.Movie('SuperSmashBros-N64-samus-samus-vs-000000.bk2')
     # IF MANUAL RECORDING DONT DO THIS STEP
     movie.step()
     env=make_env(movie.get_state(),num_players=movie.players)
     env.initial_state = movie.get_state()
     env.reset()
     i=0
+    total_reward = 0
     if create_vid:
         #remove the old video
         if os.path.exists("project.mp4"):
@@ -53,6 +49,7 @@ def main():
             #convert to bgr
             out.write(cv2.cvtColor(state_img, cv2.COLOR_RGB2BGR))
         i+=1
+        total_reward += reward
         if i%100==0 or terminal: # print the state every 100 frames and save the image
             plt.imshow(state_img) # show the image of the state
             plt.savefig(f"pics/playcolor{i}.png") # save the image
@@ -62,10 +59,11 @@ def main():
             print(f"C: {state[0]}, P: ({state[1]},{state[2]}), V: ({state[3]},{state[4]}), MS: {state[5]}, MF: {state[6]}, D: {state[7]}, DMG: {state[8]}")
             print(f"C: {state[9]}, P: ({state[10]},{state[11]}), V: ({state[12]},{state[13]}), MS: {state[14]}, MF: {state[15]}, D: {state[16]}, DMG: {state[17]}")
             print(f"reward: {reward}")
+            print(f"total reward: {total_reward}")
             print(f"actions: {keys}")
             # Match ends if terminal is true (someone won)
         movie.step()
-        movie.step()
+        movie.step() #To handle the steps used for debouncing button
     out.release()
     # Match ends if terminal is true (someone won)
     #convert the images to a video mp4

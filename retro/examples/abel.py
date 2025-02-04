@@ -1,6 +1,7 @@
 
 
 # For using the actions, we can use the following. Sum the actions for combos:
+DO_NOTHING = 0
 UP=1 #jump
 DOWN=2
 LEFT=3
@@ -14,8 +15,9 @@ STAGE_BOUNDARY_RIGHT = 2300
 STAGE_BOUNDARY_Y = 0
 
 class Abel:
-    def __init__(self, name):
+    def __init__(self, name,player_num=1):
         self.name = name
+        self.player_num = player_num
 
 #Basic characters: Mario = [0, 19], Fox = [1,20], DK = [2,21], Samus = [3,22], Link = [5,24], Yoshi = [6,25], Kirby = [8,27], , Pikachu = [9,28] 
 #Hidden characters: Luigi = [4,23], Captain Falcon = [7,26], Jigglypuff = [10,29], Ness = [11,30] (DO NOT USE!)
@@ -28,19 +30,36 @@ class Abel:
 # 17, 36 = movement_frame, 
 # 18, 37 = direction
     def convert_obs(self, obs):
+        if len(obs)==1:
+            obs = obs[0]
         #Abel
-        self.abel_x = obs[31]
-        self.abel_y = obs[32]
-        self.abel_direction = obs[37]
-        self.abel_is_ranged = obs[20] or obs[22] or obs[28]
-        self.abel_is_pikachu = obs[28]
-        self.abel_is_mario = obs[19]
+        if self.player_num == 1:
+            self.abel_x = obs[12]
+            self.abel_y = obs[13]
+            self.abel_direction = obs[18]
+            self.abel_is_ranged = obs[1] or obs[3] or obs[9]
+            self.abel_is_pikachu = obs[9]
+            self.abel_is_mario = obs[0]
+            
+            #Enemy
+            self.enemy_x = obs[31]
+            self.enemy_y = obs[32]
+            self.enemy_is_ranged = obs[20] or obs[22] or obs[28]
+            self.enemy_direction = obs[37]
         
-        #Enemy
-        self.enemy_x = obs[12]
-        self.enemy_y = obs[13]
-        self.enemy_is_ranged = obs[1] or obs[3] or obs[9]
-        self.enemy_direction = obs[18]
+        else:
+            self.abel_x = obs[31]
+            self.abel_y = obs[32]
+            self.abel_direction = obs[37]
+            self.abel_is_ranged = obs[20] or obs[22] or obs[28]
+            self.abel_is_pikachu = obs[28]
+            self.abel_is_mario = obs[19]
+            
+            #Enemy
+            self.enemy_x = obs[12]
+            self.enemy_y = obs[13]
+            self.enemy_is_ranged = obs[1] or obs[3] or obs[9]
+            self.enemy_direction = obs[18]
 
     def policy(self, obs):
         self.convert_obs(obs)
@@ -183,7 +202,6 @@ class Abel:
         
         distance_x = abs(self.abel_x - self.enemy_x)
         distance_y = abs(self.abel_y - self.enemy_y)
-
 
         # Recovery if falling off-stage
         if self.abel_y < STAGE_BOUNDARY_Y:

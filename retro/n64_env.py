@@ -188,6 +188,7 @@ class N64Env(gym.Env):
                  inttype=retro.data.Integrations.STABLE,
                  is_random_state=False,
                  use_exact_keys=False,
+                 ai_level=1,
                  obs_type=retro.Observations.IMAGE):
         if not hasattr(self, 'spec'):
             self.spec = None
@@ -202,6 +203,7 @@ class N64Env(gym.Env):
         self.is_random_state = is_random_state
         self.step_count = 0
         self.use_exact_keys = use_exact_keys
+        self.ai_level = ai_level
         if game != "SuperSmashBros-N64":
             raise NotImplementedError("Only ssb64 supported so far")
         self.ssb64_game_data = retro.data.SSB64GameData()
@@ -359,8 +361,6 @@ class N64Env(gym.Env):
                 1,
                 
                 ], dtype=np.float32)
-            print(low)
-            print(high)
             self.observation_space = gym.spaces.Box(low=low,high=high, **kwargs)
         else:
             img = [self.get_screen(p) for p in range(players)]
@@ -440,7 +440,7 @@ class N64Env(gym.Env):
     def step(self, a):
         if self.img is None and self.ram is None:
             raise RuntimeError('Please call env.reset() before env.step()')
-        print(f"Step {self.step_count} with action {a}")
+        #print(f"Step {self.step_count} with action {a}")
         save_p = [] # Save button pressed
         save_ap = [] # Save the actions for each player
         if self.use_exact_keys:
@@ -614,8 +614,10 @@ class N64Env(gym.Env):
         player1= characters[np.random.randint(0, len(characters))]
         player2= characters[np.random.randint(0, len(characters))]
         #statename = f"{player1}-{player2}-ai3.state"
-        statename = f"{player1}-{player2}-ai1.state"
-        
+        if self.players == 1:
+            statename = f"{player1}-{player2}-ai{self.ai_level}.state"
+        else:
+            statename = f"{player1}-{player2}-vs.state"
         # open the state file and read it into memory
         with gzip.open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
             self.initial_state = fh.read()
