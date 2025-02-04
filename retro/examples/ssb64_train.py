@@ -36,7 +36,7 @@ def step_callback(lcl, _glb):
     # Delete the bk2 file if the reward is negative
     if is_done:
         print(f"Episode {epinum} is done: {is_done} and the reward is {lcl['episode_rewards'][-2]}, with file {filename_to_delete} and steps {steps}")
-    if is_done and lcl['episode_rewards'][-2] < 100 and epinum > 0: # To visualize only very good replays
+    if is_done and lcl['episode_rewards'][-2] < 10 and epinum > 0: # To visualize only very good replays
         if os.path.exists(filename_to_delete):
             os.remove(filename_to_delete)
         else:
@@ -56,7 +56,7 @@ def step_callback(lcl, _glb):
 
     # If won more matches than it lost, stop training
     # 100,000,000
-    if mean_reward>9.0:
+    if mean_reward>19.0:
         print(f"Mean reward: {mean_reward}")
         print(f"Training stopped at {lcl['t']} steps")
         return True # stop training when callback returns true (a condition has been met)
@@ -118,12 +118,12 @@ def make_vec_env(state, nenvs=4, recurrent=False, frame_stack=4, num_agents=2):
 # Function to train a dqn model
 def train_dqn(env,mode,ai_level=1):
     global dateStr
-    load_prev = False
+    load_prev = True
     path=f"tf_checkpoints-{dateStr}"
     os.makedirs(path)
     # Create a copy of the checkpoint
     if load_prev:
-        load_path=f"tf_checkpoints-2025-01-15-00-19-50"
+        load_path=f"tf_checkpoints-2025-01-25-01-15-18"
         os.system(f"cp -r {load_path}/* {path}")
     opponent = None
     if env.players == 2: # If VS mode, then create an opponent

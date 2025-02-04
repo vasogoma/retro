@@ -151,3 +151,5 @@ tests/Makefile
 /tf_checkpoints*/*
 *.png
 *.mp4
+log*.txt
+metrics/*
