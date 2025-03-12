@@ -1,8 +1,9 @@
 import gc
 import gzip
 import json
+import logging
 import os
-
+import datetime
 import gym
 import gym.spaces
 from gym.utils import seeding
@@ -189,6 +190,7 @@ class N64Env(gym.Env):
                  is_random_state=False,
                  use_exact_keys=False,
                  ai_level=1,
+                 char_list="all",
                  obs_type=retro.Observations.IMAGE):
         if not hasattr(self, 'spec'):
             self.spec = None
@@ -202,7 +204,9 @@ class N64Env(gym.Env):
         self.players = players
         self.is_random_state = is_random_state
         self.step_count = 0
+        self.reset_count=0
         self.use_exact_keys = use_exact_keys
+        self.char_list = char_list
         self.ai_level = ai_level
         if game != "SuperSmashBros-N64":
             raise NotImplementedError("Only ssb64 supported so far")
@@ -242,7 +246,6 @@ class N64Env(gym.Env):
 
         if info is None:
             info = 'data'
-
         if info.endswith('.json'):
             # assume it's a path
             info_path = info
@@ -251,7 +254,6 @@ class N64Env(gym.Env):
 
         if scenario is None:
             scenario = 'scenario'
-
         if scenario.endswith('.json'):
             # assume it's a path
             scenario_path = scenario
@@ -259,7 +261,7 @@ class N64Env(gym.Env):
             scenario_path = retro.data.get_file_path(game, scenario + '.json', inttype)
 
         self.system = retro.get_romfile_system(rom_path)
-
+        self.rom_path = rom_path
         # We can't have more than one emulator per process. Before creating an
         # emulator, ensure that unused ones are garbage-collected
         gc.collect()
@@ -391,7 +393,7 @@ class N64Env(gym.Env):
                 player_2_obs = self.ssb64_game_data.ram.player_observations(1)
                 return np.concatenate([player_1_obs, player_2_obs])
             except:
-                print(f"Error getting player observations for scenario {self.statename} at step {self.step_count}")
+                logging.error(f"Error getting player observations for scenario {self.statename} at step {self.step_count}")
                 return None
             #return self.ram
         elif self._obs_type == retro.Observations.IMAGE:
@@ -440,7 +442,7 @@ class N64Env(gym.Env):
     def step(self, a):
         if self.img is None and self.ram is None:
             raise RuntimeError('Please call env.reset() before env.step()')
-        #print(f"Step {self.step_count} with action {a}")
+        #logging.error(f"Step {self.step_count} with action {a}")
         save_p = [] # Save button pressed
         save_ap = [] # Save the actions for each player
         if self.use_exact_keys:
@@ -448,7 +450,7 @@ class N64Env(gym.Env):
                 ap= a[12*p:12*(p+1)]
                 #convert to ints
                 ap = [int(i) for i in ap]
-                #print(f"Player {p} action: {ap}")
+                #logging.error(f"Player {p} action: {ap}")
                 self.em.set_button_mask(ap, p)
                 save_p.append(p)
                 save_ap.append(ap)
@@ -466,7 +468,7 @@ class N64Env(gym.Env):
                 #ap[9] = 0 # R or ?? Grab or ?? (DO NOT USE!)
                 #ap[10] = 0 # L Taunt (DO NOT USE!)
                 #ap[11] = 0 # Z (Shield)
-                #print(f"Player {p} action: {ap}")
+                #logging.error(f"Player {p} action: {ap}")
                 if self.movie:
                     for i in range(self.num_buttons):
                         self.movie.set_key(i, ap[i], p)
@@ -488,7 +490,7 @@ class N64Env(gym.Env):
                 ap[1] = 0
                 ap[4] = 0
                 self.em.set_button_mask(ap, p)
-                #print(f"Player {p} action: {ap}")
+                #logging.error(f"Player {p} action: {ap}")
 
             if self.movie:
                 self.movie.step()
@@ -496,9 +498,9 @@ class N64Env(gym.Env):
             self.data.update_ram()
 
         ob = self._update_obs()
-        #print(f"Step {self.step_count}")
-        #print(f"Player 1: {self.ssb64_game_data.ram.player_observations(0)}")
-        #print(f"Player 2: {self.ssb64_game_data.ram.player_observations(1)}")
+        #logging.error(f"Step {self.step_count}")
+        #logging.error(f"Player 1: {self.ssb64_game_data.ram.player_observations(0)}")
+        #logging.error(f"Player 2: {self.ssb64_game_data.ram.player_observations(1)}")
 
         if ob is None:
             return ob, 0, True, {}
@@ -507,11 +509,23 @@ class N64Env(gym.Env):
         return ob, rew, bool(done), dict(info)
 
     def reset(self):
+        logging.error("Reset start")
         self.step_count = 0
         if self.is_random_state:
+            logging.error("Loading random state")
             self.load_random_state()
         if self.initial_state:
-            self.em.set_state(self.initial_state)
+            self.reset_count+=1
+            logging.error(f"Time at start: {datetime.datetime.now()}")
+            if self.reset_count % 25==0:
+                del self.em
+                gc.collect()
+                self.em = retro.RetroEmulator(self.rom_path)
+                self.em.configure_data(self.data)
+                self.em.step()
+                logging.error(f"time after step: {datetime.datetime.now()}")
+            self.em.set_state(self.initial_state)#HERE
+            logging.error("Set state")
         for p in range(self.players):
             self.em.set_button_mask(np.zeros([self.num_buttons], np.uint8), p)
         self.em.step()
@@ -598,10 +612,10 @@ class N64Env(gym.Env):
     def load_state(self, statename, inttype=retro.data.Integrations.DEFAULT):
         if type(statename) is not str:
             self.initial_state = statename
-            print(f"Loaded state from memory")
+            logging.error(f"Loaded state from memory")
             self.statename = "Playback"
         else:
-            print(f"Loading state {statename}")
+            logging.error(f"Loading state {statename}")
             if not statename.endswith('.state'):
                 statename += '.state'
             # open the state file and read it into memory
@@ -613,6 +627,11 @@ class N64Env(gym.Env):
         characters = ["mario", "dk", "fox", "kirby", "link", "samus", "pikachu", "yoshi"]
         player1= characters[np.random.randint(0, len(characters))]
         player2= characters[np.random.randint(0, len(characters))]
+        if self.char_list != "all":
+            characters = self.char_list
+            player1=characters[np.random.randint(0, len(characters))]
+        self.player1_name = player1
+        self.player2_name = player2
         #statename = f"{player1}-{player2}-ai3.state"
         if self.players == 1:
             statename = f"{player1}-{player2}-ai{self.ai_level}.state"
@@ -621,7 +640,7 @@ class N64Env(gym.Env):
         # open the state file and read it into memory
         with gzip.open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
             self.initial_state = fh.read()
-        print(f"Loaded random state {statename}")
+        logging.error(f"Loaded random state {statename}")
         self.statename = statename
 
     def compute_step(self):

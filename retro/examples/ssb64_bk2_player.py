@@ -22,7 +22,7 @@ def make_env(state,num_players=1):
 
 def main():
     create_vid=True # Set to True to create a video of the match, set to False to not create a video
-    movie = retro.Movie('SuperSmashBros-N64-samus-samus-vs-000000.bk2')
+    movie = retro.Movie('SuperSmashBros-N64-pikachu-samus-ai1-000000.bk2')
     # IF MANUAL RECORDING DONT DO THIS STEP
     movie.step()
     env=make_env(movie.get_state(),num_players=movie.players)
@@ -56,7 +56,7 @@ def main():
             print(state)
             print("------------------")
             print("Step: ", i)
-            print(f"C: {state[0]}, P: ({state[1]},{state[2]}), V: ({state[3]},{state[4]}), MS: {state[5]}, MF: {state[6]}, D: {state[7]}, DMG: {state[8]}")
+            print(f"C: {state[0]}, P: ({state[12]},{state[13]}), V: ({state[3]},{state[4]}), MS: {state[5]}, MF: {state[6]}, D: {state[7]}, DMG: {state[8]}")
             print(f"C: {state[9]}, P: ({state[10]},{state[11]}), V: ({state[12]},{state[13]}), MS: {state[14]}, MF: {state[15]}, D: {state[16]}, DMG: {state[17]}")
             print(f"reward: {reward}")
             print(f"total reward: {total_reward}")
@@ -65,6 +65,8 @@ def main():
         movie.step()
         movie.step() #To handle the steps used for debouncing button
     out.release()
+    #Open the video in the system
+    os.system("open project.mp4")
     # Match ends if terminal is true (someone won)
     #convert the images to a video mp4
     return
