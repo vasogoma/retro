@@ -1,3 +1,8 @@
+"""
+Code made by Wulfe, adapted by Valeria Gonzalez: https://github.com/wulfebw/retro
+
+"""
+
 import gc
 import gzip
 import json
@@ -92,7 +97,7 @@ def get_window(width, height, display, **kwargs):
     """
     screen = display.get_screens()  # available screens
     config = screen[0].get_best_config()  # selecting the first screen
-    context = config.create_context(None)  # create GL context
+    context = config.create_context(None)  # create GL conteaxt
 
     return pyglet.window.Window(
         width=width,
@@ -191,6 +196,7 @@ class N64Env(gym.Env):
                  use_exact_keys=False,
                  ai_level=1,
                  char_list="all",
+                 goal_dodge=False,
                  obs_type=retro.Observations.IMAGE):
         if not hasattr(self, 'spec'):
             self.spec = None
@@ -208,6 +214,8 @@ class N64Env(gym.Env):
         self.use_exact_keys = use_exact_keys
         self.char_list = char_list
         self.ai_level = ai_level
+        self.cum_reward = 0
+        self.goal_dodge = goal_dodge
         if game != "SuperSmashBros-N64":
             raise NotImplementedError("Only ssb64 supported so far")
         self.ssb64_game_data = retro.data.SSB64GameData()
@@ -287,19 +295,20 @@ class N64Env(gym.Env):
             combos = 1
             for combo in self.button_combos:
                 combos *= len(combo)
-            self.action_space = gym.spaces.Discrete(combos**players)
+            self.action_space = gym.spaces.Discrete(combos)
         elif use_restricted_actions == retro.Actions.MULTI_DISCRETE:
             self.action_space = gym.spaces.MultiDiscrete([
                 len(combos) if gym_version >= (0, 9, 6) else (0, len(combos) - 1)
                 for combos in self.button_combos
-            ] * players)
+            ])
         else:
             self.action_space = gym.spaces.MultiBinary(self.num_buttons * players)
 
         kwargs = {}
-        if gym_version >= (0, 9, 6):
-            kwargs['dtype'] = np.uint8
-
+        #if gym_version >= (0, 9, 6):
+        #    kwargs['dtype'] = np.uint8
+        
+        #START OF MY CODE
         if self._obs_type == retro.Observations.RAM:
             low=np.array([
 
@@ -323,7 +332,8 @@ class N64Env(gym.Env):
                 # Y velocity
                 # movement state
                 # movement frame
-                # direction
+                # direction left
+                # direction right
                 0,0,0,0,0,0,0,0,0,0,0,0,
                 np.finfo(np.float32).min,
                 np.finfo(np.float32).min,
@@ -331,7 +341,8 @@ class N64Env(gym.Env):
                 np.finfo(np.float32).min,
                 0,
                 0,
-                -1,
+                0,
+                0,
                 
                 #player 2
                 0,0,0,0,0,0,0,0,0,0,0,0,
@@ -341,8 +352,11 @@ class N64Env(gym.Env):
                 np.finfo(np.float32).min,
                 0,
                 0,
-                -1,
+                0,
+                0
             ], dtype=np.float32)
+            if self.goal_dodge:
+                low=np.array([np.finfo(np.float32).min,np.finfo(np.float32).min,0,0,np.finfo(np.float32).min,np.finfo(np.float32).min,0,0], dtype=np.float32)
             high=np.array([
                 1,1,1,1,1,1,1,1,1,1,1,1,
                 np.finfo(np.float32).max,
@@ -352,6 +366,7 @@ class N64Env(gym.Env):
                 255,
                 np.iinfo(np.int32).max,
                 1,
+                1,
 
                 1,1,1,1,1,1,1,1,1,1,1,1,
                 np.finfo(np.float32).max,
@@ -361,14 +376,17 @@ class N64Env(gym.Env):
                 255,
                 np.iinfo(np.int32).max,
                 1,
+                1,
                 
                 ], dtype=np.float32)
-            self.observation_space = gym.spaces.Box(low=low,high=high, **kwargs)
+            if self.goal_dodge:
+                high=np.array([np.finfo(np.float32).max,np.finfo(np.float32).max,1,1,np.finfo(np.float32).max,np.finfo(np.float32).max,1,1], dtype=np.float32)
+            self.observation_space = gym.spaces.Box(low=low,high=high,dtype=np.float32, **kwargs)
         else:
             img = [self.get_screen(p) for p in range(players)]
             shape = img[0].shape
             self.observation_space = gym.spaces.Box(low=0, high=255, shape=shape, **kwargs)
-
+        #END OF MY CODE ADAPTATIONS
         self.use_restricted_actions = use_restricted_actions
         self.movie = None
         self.movie_id = 0
@@ -384,13 +402,17 @@ class N64Env(gym.Env):
             self._reset = self.reset
             self._render = self.render
             self._close = self.close
-
+    #START OF MY ADAPTATIONS
     def _update_obs(self):
         self.ram = self.get_ram()
         if self._obs_type == retro.Observations.RAM:
             try:
-                player_1_obs = self.ssb64_game_data.ram.player_observations(0)
-                player_2_obs = self.ssb64_game_data.ram.player_observations(1)
+                if self.goal_dodge:
+                    player_1_obs = self.ssb64_game_data.ram.player_observations_min(0)
+                    player_2_obs = self.ssb64_game_data.ram.player_observations_min(1)
+                else:
+                    player_1_obs = self.ssb64_game_data.ram.player_observations(0)
+                    player_2_obs = self.ssb64_game_data.ram.player_observations(1)
                 return np.concatenate([player_1_obs, player_2_obs])
             except:
                 logging.error(f"Error getting player observations for scenario {self.statename} at step {self.step_count}")
@@ -401,7 +423,7 @@ class N64Env(gym.Env):
             return self.img
         else:
             raise ValueError('Unrecognized observation type: {}'.format(self._obs_type))
-
+    #END OF MY ADAPTATIONS
     def action_to_array(self, acts):
         actions = []
         for p in range(self.players):
@@ -438,7 +460,7 @@ class N64Env(gym.Env):
                 ap[i] = (action >> i) & 1
             actions.append(ap)
         return actions
-
+    #START OF MY ADAPTATIONS
     def step(self, a):
         if self.img is None and self.ram is None:
             raise RuntimeError('Please call env.reset() before env.step()')
@@ -509,8 +531,9 @@ class N64Env(gym.Env):
         return ob, rew, bool(done), dict(info)
 
     def reset(self):
-        logging.error("Reset start")
+        logging.error(f"Reset start. State {self.statename} done with {self.step_count} steps, Reward {self.cum_reward}")
         self.step_count = 0
+        self.cum_reward = 0
         if self.is_random_state:
             logging.error("Loading random state")
             self.load_random_state()
@@ -544,7 +567,7 @@ class N64Env(gym.Env):
         self.ssb64_game_data.update(self.ram)
         obs= self._update_obs()
         return obs
-
+    #END OF MY ADAPTATIONS
     def seed(self, seed=None):
         self.np_random, seed1 = seeding.np_random(seed)
         # Derive a random seed. This gets passed as a uint, but gets
@@ -622,7 +645,7 @@ class N64Env(gym.Env):
             with gzip.open(retro.data.get_file_path(self.gamename, statename, inttype), 'rb') as fh:
                 self.initial_state = fh.read()
             self.statename = statename
-
+    #START OF MY CODE
     def load_random_state(self, inttype=retro.data.Integrations.DEFAULT):
         characters = ["mario", "dk", "fox", "kirby", "link", "samus", "pikachu", "yoshi"]
         player1= characters[np.random.randint(0, len(characters))]
@@ -648,12 +671,25 @@ class N64Env(gym.Env):
         self.ssb64_game_data.update(self.ram)
         if self.players > 1:
             # Make the reward a numpy array so that certain wrappers work with it.
-            reward = np.array([self.ssb64_game_data.current_reward(p) for p in range(self.players)])
+            if self.goal_dodge:
+                reward = np.array([self.ssb64_game_data.current_reward_dodge(p,steps=self.step_count) for p in range(self.players)])
+            else:
+                reward = np.array([self.ssb64_game_data.current_reward(p) for p in range(self.players)])
+            self.cum_reward += reward[0]
         else:
-            reward = self.ssb64_game_data.current_reward()
+            if self.goal_dodge:
+                reward = self.ssb64_game_data.current_reward_dodge(steps=self.step_count)
+            else:
+                reward = self.ssb64_game_data.current_reward()
+            self.cum_reward += reward
         done = self.ssb64_game_data.is_done()
+        if self.goal_dodge:
+            if self.step_count>5000 or reward[0]<-10:
+                done=True
+        if self.step_count>5000:
+            done=True
         return reward, done, self.ssb64_game_data.lookup_all()
-
+    #END OF MY CODE
     def record_movie(self, path):
         self.movie = retro.Movie(path, True, self.players)
         self.movie.configure(self.gamename, self.em)

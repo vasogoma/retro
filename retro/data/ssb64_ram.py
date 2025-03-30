@@ -3,6 +3,13 @@
 Most of this information is from:
 # https://github.com/Isotarge/ScriptHawk/blob/master/games/smash64.lua
 """
+
+"""
+Code adapted by Wulfe, from that version adapted by Valeria Gonzalez: https://github.com/wulfebw/retro
+
+
+
+"""
 import numpy as np
 
 SSB64_CHARACTER_ORDERING = [
@@ -225,6 +232,15 @@ class SSB64RAM:
         direction= convert_byte_list_to_sint32(direction_bytes)
         return direction    
 
+    #START OF MY CODE
+    def player_observations_min(self, player_index):
+        player_data = self.player_data(player_index)
+        position_x = self.player_position_x(player_data)
+        position_y = self.player_position_y(player_data)
+        direction_left = self.player_direction(player_data)==-1
+        direction_right = self.player_direction(player_data)==1
+        return [position_x, position_y, direction_left, direction_right]
+
     #get all relevant observations for a player
     def player_observations(self, player_index):
         player_data = self.player_data(player_index)
@@ -248,9 +264,10 @@ class SSB64RAM:
         velocity_y = self.player_velocity_y(player_data)
         movement_state = self.player_movement_state(player_data)
         movement_frame = self.player_movement_frame(player_data)
-        direction = self.player_direction(player_data)
+        direction_left = self.player_direction(player_data)==-1
+        direction_right = self.player_direction(player_data)==1
         return [is_mario, is_fox, is_dk, is_samus, is_luigi, is_link, is_yoshi, is_falcon, is_kirby, is_pikachu, is_jigglypuff, is_ness, 
-                position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction]
+                position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction_left, direction_right]
     
         #get all relevant observations for a player
     def player_observations_old(self, player_index):
@@ -265,6 +282,8 @@ class SSB64RAM:
         direction = self.player_direction(player_data)
         damage = self.player_damage(player_index)
         return [character, position_x, position_y, velocity_x, velocity_y, movement_state, movement_frame, direction,damage]
+    #END OF MY CODE
+
 def main():
     # filepath = "/home/wulfebw/programming/retro/save_states/dreamland.npy"
     # filepath = "/home/wulfebw/programming/retro/save_states/peaches.npy"

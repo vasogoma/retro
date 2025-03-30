@@ -153,3 +153,6 @@ tests/Makefile
 *.mp4
 log*.txt
 metrics/*
+*.pb
+*.index
+*.data-00*

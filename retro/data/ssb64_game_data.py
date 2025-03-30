@@ -1,5 +1,11 @@
-import collections
+"""
+Code made by Wulfe, adapted by Valeria Gonzalez: https://github.com/wulfebw/retro
 
+
+
+"""
+
+import collections
 from retro.data.ssb64_ram import SSB64RAM
 
 STAGE_BOUNDARY_LEFT = -1900
@@ -21,6 +27,7 @@ class SSB64GameData:
         self.ram = SSB64RAM()
         self.player_state = collections.defaultdict(lambda: collections.defaultdict(int))
 
+    
     def update(self, ram):
         self.ram.update(ram)
         for player_index in range(self.num_players):
@@ -48,6 +55,32 @@ class SSB64GameData:
                 self.player_state[player_index]["damage_change"] = 0
 
 
+    #START OF MY CODE
+    def current_reward_dodge(self, player_index=0,steps=0):
+        # Penalize loosing a live (stock).
+        stock_change = self.player_state[player_index]["stock_change"]
+        reward= 0
+        if stock_change != 0:
+            reward= -100
+        if steps>5000:
+            return 20
+        # Penalize getting near the stage edges.
+        #if self.player_state[player_index]['x'] < (STAGE_BOUNDARY_LEFT + 100) or self.player_state[player_index]['x'] > (STAGE_BOUNDARY_RIGHT -100):
+        #    reward -= 1
+
+        # Penalize falling off the stage.
+        if self.player_state[player_index]['x'] < STAGE_BOUNDARY_LEFT or self.player_state[player_index]['x'] > STAGE_BOUNDARY_RIGHT or self.player_state[player_index]['y'] < STAGE_BOUNDARY_Y:
+            reward -= 2
+            return -20
+
+        # Reward for being alive.
+        reward += 0.2
+        
+        # clamp between -300 and 300
+        reward= max(min(reward, 300), -300)
+        # normalize between -1 and 1
+        return reward/300
+    
     def current_reward(self, player_index=0):
         # Penalize loosing a live (stock).
         stock_change = self.player_state[player_index]["stock_change"]
@@ -85,7 +118,8 @@ class SSB64GameData:
         reward= max(min(reward, 300), -300)
         # normalize between -1 and 1
         return reward/300
-
+    #END OF MY CODE 
+    
     def is_done(self):
         nonzero_stock_count = 0
         for player_index in range(self.num_players):

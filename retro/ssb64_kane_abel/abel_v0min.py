@@ -1,4 +1,12 @@
-# For using the actions, we can use the following. Sum the actions for combos:
+"""
+Code made by Valeria Gonzalez
+
+Simplified version of the abel_v0.py code, made to test a minimum version of Kane to ensure the bug where it was not training is not caused by complexity on the observations being passed.
+The agent will determine the action to take based on the character's positon, the enemy's position, and the character's specific abilities.
+"""
+
+import tensorflow as tf
+
 DO_NOTHING = 0
 UP=1 #jump
 DOWN=2
@@ -12,7 +20,7 @@ STAGE_BOUNDARY_LEFT = -1900
 STAGE_BOUNDARY_RIGHT = 2300
 STAGE_BOUNDARY_Y = 0
 
-class AbelV0:
+class AbelV0Min:
     def __init__(self, name,player_num=1,debug=False):
         self.name = name
         self.player_num = player_num
@@ -33,32 +41,30 @@ class AbelV0:
             obs = obs[0]
         #Check if abel is player 1 or 2, and set the variables accordingly
         if self.player_num == 1: #If abel is player 1
-            self.abel_x = obs[12]
-            self.abel_y = obs[13]
-            self.abel_direction = obs[18]
-            self.abel_is_ranged = obs[1] or obs[3] or obs[9]
-            self.abel_is_pikachu = obs[9]
-            self.abel_is_mario = obs[0]
+            self.abel_x = obs[0]
+            self.abel_y = obs[1]
+            self.abel_direction = obs[2]*-1+obs[3]
+            self.abel_is_ranged = False
+            self.abel_is_mario = True
             
             #Enemy
-            self.enemy_x = obs[31]
-            self.enemy_y = obs[32]
-            self.enemy_is_ranged = obs[20] or obs[22] or obs[28]
-            self.enemy_direction = obs[37]
+            self.enemy_x = obs[4]
+            self.enemy_y = obs[5]
+            self.enemy_is_ranged = True
+            self.enemy_direction = obs[6]*-1+obs[7]
         
         else: #If abel is player 2
-            self.abel_x = obs[31]
-            self.abel_y = obs[32]
-            self.abel_direction = obs[37]
-            self.abel_is_ranged = obs[20] or obs[22] or obs[28]
-            self.abel_is_pikachu = obs[28]
-            self.abel_is_mario = obs[19]
-            
+            #print(obs)
+            self.abel_x = obs[4]
+            self.abel_y = obs[5]
+            self.abel_direction = obs[6]*-1+obs[7]
+            self.abel_is_ranged = False
+            self.abel_is_mario = True
             #Enemy
-            self.enemy_x = obs[12]
-            self.enemy_y = obs[13]
-            self.enemy_is_ranged = obs[1] or obs[3] or obs[9]
-            self.enemy_direction = obs[18]
+            self.enemy_x = obs[0]
+            self.enemy_y = obs[1]
+            self.enemy_is_ranged = True
+            self.enemy_direction = obs[2]*-1+obs[3]
 
     def policy(self, obs):
         self.convert_obs(obs)

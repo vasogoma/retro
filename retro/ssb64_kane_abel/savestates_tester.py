@@ -1,3 +1,12 @@
+"""
+Code made by Valeria Gonzalez
+
+This script is used for testing purposes, to ensure all save states are functional and the name of the files matches the characters, so they can be later on used for training and evaluation.
+It generates simulation environments for different character pairings using the `ssb64_train`.
+It creates save state file paths for each character combination, runs simulations, and captures screenshots of the game states.
+The screenshots are saved in the 'pics' directory for visual analysis of the simulations.
+"""
+
 import os
 import matplotlib.pyplot as plt
 from ssb64_train import make_env
@@ -15,6 +24,11 @@ if not os.path.exists(SAVE_STATE_DIR):
 def generate_save_state_file_paths():
     """
     Generates file paths for all possible character pairings.
+    This function iterates through the list of characters and creates a file path
+    for each combination of two characters. The file path format is "<char1>-<char2>-vs.state".
+    
+    Returns:
+    list: A list of file paths for each character pairing.
     """
     save_state_paths = []
     for player1 in characters:
@@ -29,6 +43,13 @@ def generate_save_state_file_paths():
 def run_sim(env, char1, char2):
     """
     Run a simulation for a given environment for testing.
+    This function simulates a 1v1 match between two characters by taking random actions
+    for both players in each frame and capturing the resulting game state image.
+    
+    Parameters:
+    env (gym.Env): The environment in which the simulation runs.
+    char1 (str): The name of the first character.
+    char2 (str): The name of the second character.
     """
     i=0
     # Reset the environment
